@@ -1,0 +1,38 @@
+name: alas
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  # --- Point cloud I/O & processing ---
+  - pdal
+  - python-pdal
+  - laspy
+  - lazrs
+  # --- Raster & geo ---
+  - gdal
+  - rasterio
+  - pyproj
+  - shapely
+  - fiona
+  - geopandas
+  # --- Scientific ---
+  - numpy
+  - scipy
+  - scikit-image
+  - matplotlib
+  # --- Terrain & hydrology ---
+  - richdem
+  # --- 3D geometry algorithms ---
+  - open3d
+  # --- Visualization ---
+  - pyvista
+  - pyvistaqt
+  - vtk
+  # --- Misc ---
+  - reportlab
+  - pip
+  - pip:
+    - PyQt6
+    - PyQt6-WebEngine
+    - pysheds
