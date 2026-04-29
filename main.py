@@ -1,6 +1,8 @@
 """
 ALAS — Aerial LiDAR Analysis Software
 Punto de entrada principal de la aplicación.
+
+conda env create -f environment.yml || conda env update -f environment.yml; conda run -n alas python main.py
 """
 
 import sys
