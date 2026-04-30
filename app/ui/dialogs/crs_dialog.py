@@ -5,8 +5,7 @@ Diálogo para reproyección de coordenadas.
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QLineEdit, QSpinBox, QPushButton, QLabel, QMessageBox,
-    QProgressBar
+    QLineEdit, QSpinBox, QPushButton, QLabel, QMessageBox
 )
 from PyQt6.QtCore import Qt
 
@@ -72,11 +71,6 @@ class CRSDialog(QDialog):
 
         layout.addWidget(grp_target)
 
-        # Progress
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
-
         layout.addStretch()
 
         # Buttons
@@ -102,9 +96,6 @@ class CRSDialog(QDialog):
             QMessageBox.information(self, "Info", "Origen y destino son iguales.")
             return
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             result = reproject(self.pc, source, target)
 
@@ -114,9 +105,6 @@ class CRSDialog(QDialog):
             self.pc.crs_wkt = result.crs_wkt
             self.pc.name = result.name
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
-
             QMessageBox.information(
                 self, "Completado",
                 f"Reproyectado de EPSG:{source} a EPSG:{target}"
@@ -124,5 +112,4 @@ class CRSDialog(QDialog):
             self.accept()
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, "Error", str(e))

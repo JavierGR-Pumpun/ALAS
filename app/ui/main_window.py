@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QFileDialog, QMessageBox,
-    QProgressBar, QLabel, QWidget, QVBoxLayout, QApplication,
+    QLabel, QWidget, QVBoxLayout, QApplication,
     QTabWidget, QMenuBar, QMenu, QToolBar, QStatusBar
 )
 from PyQt6.QtCore import Qt, QSize, QThreadPool, QTimer
@@ -299,11 +299,6 @@ class MainWindow(QMainWindow):
         self._points_label = QLabel("0 " + tr("status.points"))
         self.statusBar().addPermanentWidget(self._points_label)
 
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setFixedWidth(200)
-        self._progress_bar.setVisible(False)
-        self.statusBar().addPermanentWidget(self._progress_bar)
-
     def _update_status(self, message: str):
         self._status_label.setText(message)
 
@@ -319,10 +314,6 @@ class MainWindow(QMainWindow):
             if e.is_point_cloud
         )
         self._points_label.setText(f"{total:,} {tr('status.points')}")
-
-    def _show_progress(self, visible: bool, value: int = 0):
-        self._progress_bar.setVisible(visible)
-        self._progress_bar.setValue(value)
 
     def _setup_shortcuts(self):
         """Configura atajos de teclado globales."""
@@ -397,10 +388,6 @@ class MainWindow(QMainWindow):
 
         ext = Path(file_path).suffix.lower()
         self._update_status(tr("status.loading"))
-        
-        # Barra de progreso indeterminada (animación contínua)
-        self._progress_bar.setRange(0, 0)
-        self._show_progress(True)
 
         kwargs = {}
         if ext in POINT_CLOUD_EXTENSIONS:
@@ -430,8 +417,6 @@ class MainWindow(QMainWindow):
         elif ext in RASTER_EXTENSIONS:
             loader_func = RasterLayer.from_file
         else:
-            self._progress_bar.setRange(0, 100)
-            self._show_progress(False)
             self._update_status(tr("status.ready"))
             return
 
@@ -440,7 +425,6 @@ class MainWindow(QMainWindow):
         # Conectar señales
         worker.signals.result.connect(lambda res: self._on_file_loaded(res, ext, file_path))
         worker.signals.error.connect(lambda err: self._on_file_load_error(err, file_path))
-        worker.signals.finished.connect(self._on_file_load_finished)
         
         self.thread_pool.start(worker)
 
@@ -470,10 +454,6 @@ class MainWindow(QMainWindow):
         logger.error(f"Error cargando {file_path}: {error_msg}")
         QMessageBox.critical(self, tr("error.processing_failed"), str(error_msg))
         self._update_status(tr("status.ready"))
-
-    def _on_file_load_finished(self):
-        self._progress_bar.setRange(0, 100)
-        self._show_progress(False)
 
     def _prompt_crs_assignment(self, pc: PointCloudData):
         """Si el archivo no tiene CRS, preguntar al usuario."""

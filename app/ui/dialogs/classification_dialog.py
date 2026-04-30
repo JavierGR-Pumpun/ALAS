@@ -7,7 +7,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
     QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLabel,
-    QProgressBar, QMessageBox
+    QMessageBox
 )
 from PyQt6.QtCore import Qt
 
@@ -126,11 +126,6 @@ class ClassificationDialog(QDialog):
         self._classify_above.setChecked(True)
         layout.addWidget(self._classify_above)
 
-        # Progress
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
-
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -154,9 +149,6 @@ class ClassificationDialog(QDialog):
 
     def _run_classification(self):
         algo = self._algo_combo.currentData()
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)  # Indeterminate
-
         try:
             if algo == "smrf":
                 self._result = classify_ground_smrf(
@@ -184,12 +176,9 @@ class ClassificationDialog(QDialog):
                 self.pc.classification = self._result
                 self._result = classify_above_ground(self.pc)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
             self.accept()
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, tr("error.processing_failed"), str(e))
 
     def get_result(self):
