@@ -35,6 +35,7 @@ class Viewport3D(QWidget):
 
     point_picked = pyqtSignal(float, float, float)   # x, y, z
     cursor_moved = pyqtSignal(float, float, float)    # coordenadas bajo cursor
+    area_updated = pyqtSignal(float)                  # área calculada en m²
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,12 +43,14 @@ class Viewport3D(QWidget):
         self._current_actors = {}  # {layer_name: actor}
         self._point_size = DEFAULT_POINT_SIZE
         self._colorize_mode = COLORIZE_HEIGHT
-        
+
         # Tools state
         self._picked_points = []
         self._measuring_widget = None
         self._picking_callback = None
-        self._temp_actors = []  # Actores temporales (líneas, puntos de medida)
+        self._temp_actors = []       # Actores temporales (líneas, puntos de medida)
+        self._picking_active = False # Flag para desactivar remap de botones durante picking
+        self._area_points = []       # Puntos acumulados para herramienta de área
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -70,6 +73,10 @@ class Viewport3D(QWidget):
         from PyQt6.QtCore import QEvent, Qt
         from PyQt6.QtGui import QMouseEvent
         from PyQt6.QtWidgets import QApplication
+
+        # No interceptar eventos si hay picking activo (área, distancia, puntos)
+        if self._picking_active:
+            return super().eventFilter(obj, event)
 
         if hasattr(self, 'plotter') and obj == self.plotter.interactor:
             if event.type() == QEvent.Type.MouseButtonPress:
@@ -109,8 +116,6 @@ class Viewport3D(QWidget):
                     QApplication.postEvent(obj, new_event)
                     return True
         return super().eventFilter(obj, event)
-
-
 
     # ------------------------------------------------------------------
     # Point Cloud Display
@@ -307,7 +312,6 @@ class Viewport3D(QWidget):
 
     def set_point_size(self, size: float):
         self._point_size = size
-        # Update all point cloud actors
         for name, actor in self._current_actors.items():
             try:
                 prop = actor.GetProperty()
@@ -336,11 +340,9 @@ class Viewport3D(QWidget):
         """Habilita la selección de puntos en el viewport."""
         logger.info("Habilitando selección de puntos...")
         self.disable_tools()
+        self._picking_active = True
         self._picking_callback = callback
-        
-        # Intentamos habilitar la selección de puntos
-        # Nota: En algunas versiones de PyVista puede requerir pulsar 'P'
-        # Intentamos forzar que funcione con click izquierdo si es posible
+
         self.plotter.enable_point_picking(
             callback=self._on_point_picked,
             show_message="",
@@ -348,7 +350,7 @@ class Viewport3D(QWidget):
             point_size=12,
             use_picker=True
         )
-        logger.info("Selección de puntos lista. Intenta hacer clic en los puntos.")
+        logger.info("Selección de puntos lista. Haz clic en los puntos.")
 
     def _on_point_picked(self, point):
         """Callback cuando se selecciona un punto."""
@@ -356,15 +358,18 @@ class Viewport3D(QWidget):
         if point is None:
             logger.warning("Picking disparado pero no se encontró ningún punto.")
             return
-            
+
         x, y, z = point
         logger.info(f"Punto detectado: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
-        
-        # Añadir marcador visual (esfera resaltada)
+
         sphere = pv.Sphere(radius=0.2, center=point)
-        actor = self.plotter.add_mesh(sphere, color="#ffff00", name=f"_tmp_point_{len(self._temp_actors)}", always_on_top=True)
+        actor = self.plotter.add_mesh(
+            sphere, color="#ffff00",
+            name=f"_tmp_point_{len(self._temp_actors)}",
+            always_on_top=True
+        )
         self._temp_actors.append(actor)
-        
+
         self.point_picked.emit(x, y, z)
         if self._picking_callback:
             logger.debug("Llamando al callback de la herramienta...")
@@ -374,53 +379,118 @@ class Viewport3D(QWidget):
         """Dibuja una línea temporal resaltada entre dos puntos."""
         line = pv.Line(p1, p2)
         actor = self.plotter.add_mesh(
-            line, 
-            color=color, 
-            line_width=12, 
+            line,
+            color=color,
+            line_width=12,
             name=f"_tmp_line_{len(self._temp_actors)}",
             render_lines_as_tubes=True,
             smooth_shading=True,
             always_on_top=True
         )
-        
-        # Forzar que se vea por encima
         try:
             actor.GetProperty().SetLighting(False)
             actor.GetProperty().SetAmbient(1.0)
-        except:
+        except Exception:
             pass
-            
+
         self._temp_actors.append(actor)
         return actor
 
     def enable_distance_tool(self):
         """Habilita la herramienta de medición de distancia."""
         self.disable_tools()
-        # El widget de medición de PyVista usa amarillo por defecto
-        self._measuring_widget = self.plotter.add_measurement_widget(color="#ffff00")
+        self._picking_active = True
+        self._measuring_widget = self.plotter.add_measurement_widget(color="#000000")
         logger.info("Herramienta de distancia habilitada")
+
+    def enable_area_tool(self):
+        """
+        Habilita la herramienta de medición de área.
+        El usuario hace clic para añadir vértices del polígono.
+        El área se recalcula en tiempo real con cada nuevo punto.
+        Emite la señal area_updated(float) con el área en m².
+        """
+        logger.info("Habilitando herramienta de área...")
+        self.disable_tools()
+        self._picking_active = True
+        self._area_points = []
+
+        def on_area_pick(point):
+            if point is None:
+                return
+
+            x, y, z = float(point[0]), float(point[1]), float(point[2])
+            self._area_points.append((x, y, z))
+            pts = self._area_points
+            logger.info(f"Vértice {len(pts)} añadido: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+
+            # Marcador visual del vértice
+            sphere = pv.Sphere(radius=0.2, center=(x, y, z))
+            actor = self.plotter.add_mesh(
+                sphere, color="#00ff00",
+                name=f"_area_pt_{len(self._temp_actors)}",
+                always_on_top=True
+            )
+            self._temp_actors.append(actor)
+
+            # Línea al punto anterior
+            if len(pts) >= 2:
+                self.add_temporary_line(pts[-2], pts[-1], color="#00ff00")
+
+            # Con 3+ puntos: cerrar polígono y calcular área
+            if len(pts) >= 3:
+                # Redibujar cierre (se elimina y redibuja para que siempre sea el último segmento)
+                self.add_temporary_line(pts[-1], pts[0], color="#00ff00")
+                area = self._compute_polygon_area(pts)
+                logger.info(f"Área aproximada del polígono: {area:.4f} m²")
+                self.area_updated.emit(area)
+
+        self.plotter.enable_point_picking(
+            callback=on_area_pick,
+            show_message="",
+            color="#00ff00",
+            point_size=12,
+            use_picker=True
+        )
+        logger.info("Herramienta de área lista. Haz clic para añadir vértices.")
+
+    def _compute_polygon_area(self, points) -> float:
+        """
+        Calcula el área 2D proyectada en XY usando la fórmula de Shoelace (Gauss).
+        Para nubes de puntos en coordenadas reales (metros), el resultado está en m².
+        """
+        pts = np.array(points)
+        x, y = pts[:, 0], pts[:, 1]
+        n = len(pts)
+        area = 0.5 * abs(
+            sum(x[i] * y[(i + 1) % n] - x[(i + 1) % n] * y[i] for i in range(n))
+        )
+        return float(area)
 
     def clear_temporary_graphics(self):
         """Limpia líneas y puntos de selección temporales."""
         for actor in self._temp_actors:
             try:
                 self.plotter.remove_actor(actor)
-            except:
+            except Exception:
                 pass
         self._temp_actors = []
+        self._area_points = []
         self.plotter.render()
 
     def disable_tools(self):
         """Deshabilita herramientas interactivas y limpia widgets."""
+        self._picking_active = False
         self.plotter.disable_picking()
         self.clear_temporary_graphics()
         if self._measuring_widget:
             try:
                 self.plotter.clear_measurements()
-            except:
+            except Exception:
                 pass
             self._measuring_widget = None
         self._picking_callback = None
+        self._area_points = []
         logger.info("Herramientas interactivas deshabilitadas")
 
     # ------------------------------------------------------------------
@@ -428,7 +498,5 @@ class Viewport3D(QWidget):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
-        self.plotter.close()
-        super().closeEvent(event)
         self.plotter.close()
         super().closeEvent(event)

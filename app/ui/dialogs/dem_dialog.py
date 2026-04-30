@@ -5,7 +5,7 @@ Diálogo para configurar y generar modelos digitales (MDT/MDS/CHM).
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QComboBox, QDoubleSpinBox, QPushButton, QLabel, QProgressBar,
+    QComboBox, QDoubleSpinBox, QPushButton, QLabel,
     QFileDialog, QMessageBox, QCheckBox
 )
 from PyQt6.QtCore import Qt
@@ -79,11 +79,6 @@ class DEMDialog(QDialog):
         self._auto_export.setChecked(False)
         layout.addWidget(self._auto_export)
 
-        # Progress
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
-
         layout.addStretch()
 
         # Buttons
@@ -107,9 +102,6 @@ class DEMDialog(QDialog):
         method = self._method_combo.currentData()
         power = self._power.value()
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             if dem_type == "dtm":
                 self._result = generate_dtm(self.pc, resolution, method, power)
@@ -130,12 +122,9 @@ class DEMDialog(QDialog):
                 if path:
                     self._result.to_geotiff(path)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
             self.accept()
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, tr("error.processing_failed"), str(e))
 
     def get_result(self) -> RasterLayer:

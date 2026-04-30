@@ -6,7 +6,7 @@ Diálogo unificado de análisis con pestañas: geomorfología, hidrología, vege
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
     QFormLayout, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox,
-    QPushButton, QLabel, QProgressBar, QMessageBox, QFileDialog,
+    QPushButton, QLabel, QMessageBox, QFileDialog,
     QWidget
 )
 from PyQt6.QtCore import Qt
@@ -55,11 +55,6 @@ class AnalysisDialog(QDialog):
         # Set initial tab
         tab_map = {"geomorphology": 0, "hydrology": 1, "vegetation": 2, "multitemporal": 3}
         self._tabs.setCurrentIndex(tab_map.get(initial_tab, 0))
-
-        # Progress
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -148,9 +143,6 @@ class AnalysisDialog(QDialog):
         if not isinstance(dtm, RasterLayer):
             return
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             from app.processing.geomorphology import (
                 calculate_slope, calculate_aspect, calculate_curvature,
@@ -183,12 +175,9 @@ class AnalysisDialog(QDialog):
                 result = morphometric_classification(dtm)
                 self.layer_manager.add_layer(result)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
             QMessageBox.information(self, "Completado", "Análisis geomorfológico completado.")
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, "Error", str(e))
 
     # ------------------------------------------------------------------
@@ -243,9 +232,6 @@ class AnalysisDialog(QDialog):
         if not isinstance(dtm, RasterLayer):
             return
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             from app.processing.hydrology import (
                 flow_direction, flow_accumulation, detect_ponding_zones
@@ -263,12 +249,10 @@ class AnalysisDialog(QDialog):
                 result = detect_ponding_zones(dtm)
                 self.layer_manager.add_layer(result)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
             QMessageBox.information(self, "Completado", "Análisis hidrológico completado.")
 
         except Exception as e:
-            self._progress.setVisible(False)
+
             QMessageBox.critical(self, "Error", str(e))
 
     # ------------------------------------------------------------------
@@ -337,9 +321,6 @@ class AnalysisDialog(QDialog):
         if not isinstance(chm, RasterLayer):
             return
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             from app.processing.vegetation import (
                 detect_tree_tops, segment_crowns, density_map
@@ -367,16 +348,12 @@ class AnalysisDialog(QDialog):
                 result = density_map(chm, self._density_cell.value())
                 self.layer_manager.add_layer(result)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
-
             msg = "Análisis de vegetación completado."
             if tree_tops is not None:
                 msg += f"\nÁrboles detectados: {len(tree_tops)}"
             QMessageBox.information(self, "Completado", msg)
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, "Error", str(e))
 
     # ------------------------------------------------------------------
@@ -438,9 +415,6 @@ class AnalysisDialog(QDialog):
         if not isinstance(before, RasterLayer) or not isinstance(after, RasterLayer):
             return
 
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-
         try:
             from app.processing.multitemporal import (
                 compute_dod, classify_changes, detect_deforestation
@@ -459,10 +433,7 @@ class AnalysisDialog(QDialog):
                 deforest = detect_deforestation(before, after)
                 self.layer_manager.add_layer(deforest)
 
-            self._progress.setRange(0, 100)
-            self._progress.setValue(100)
             QMessageBox.information(self, "Completado", "Análisis multitemporal completado.")
 
         except Exception as e:
-            self._progress.setVisible(False)
             QMessageBox.critical(self, "Error", str(e))
