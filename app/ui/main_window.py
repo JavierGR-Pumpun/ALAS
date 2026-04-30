@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize, QThreadPool, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
+import numpy as np
 
 from app.core.project import Project, UserPreferences
 from app.core.layer_manager import LayerManager
@@ -57,10 +58,10 @@ class MainWindow(QMainWindow):
         self._setup_viewport()
         self._setup_panels()
         self._setup_menu_bar()
-        self._setup_toolbar()
         self._setup_status_bar()
         self._connect_signals()
-
+        self._setup_shortcuts()
+        
         # Restore geometry
         self._restore_state()
 
@@ -278,41 +279,8 @@ class MainWindow(QMainWindow):
         menu_help.addAction(act_about)
 
     # ==================================================================
-    # Toolbar
+    # Toolbar (Removed)
     # ==================================================================
-
-    def _setup_toolbar(self):
-        toolbar = QToolBar("Principal", self)
-        toolbar.setIconSize(QSize(20, 20))
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
-        # File actions
-        toolbar.addAction(tr("action.open").replace("...", ""), self._open_file)
-        toolbar.addSeparator()
-
-        # View actions
-        toolbar.addAction("Reset", self.viewport.reset_camera)
-        toolbar.addAction("Top", self.viewport.set_view_top)
-        toolbar.addSeparator()
-
-        # Processing actions
-        toolbar.addAction(tr("action.classify").replace("...", ""), self._show_classification_dialog)
-        toolbar.addAction("DEM", self._show_dem_dialog)
-        toolbar.addSeparator()
-
-        # Analysis
-        toolbar.addAction(tr("action.geomorphology").replace("...", ""), self._show_geomorphology_dialog)
-        toolbar.addAction(tr("action.hydrology").replace("...", ""), self._show_hydrology_dialog)
-        toolbar.addAction(tr("action.vegetation").replace("...", ""), self._show_vegetation_dialog)
-        toolbar.addSeparator()
-
-        # Tools
-        toolbar.addAction(tr("action.profile"), self._start_profile_tool)
-        toolbar.addSeparator()
-
-        # Export
-        toolbar.addAction(tr("action.export").replace("...", ""), self._show_export_dialog)
 
     # ==================================================================
     # Status Bar
@@ -355,6 +323,19 @@ class MainWindow(QMainWindow):
     def _show_progress(self, visible: bool, value: int = 0):
         self._progress_bar.setVisible(visible)
         self._progress_bar.setValue(value)
+
+    def _setup_shortcuts(self):
+        """Configura atajos de teclado globales."""
+        self._act_clear = QAction("Limpiar herramientas", self)
+        self._act_clear.setShortcut(QKeySequence("Esc"))
+        self._act_clear.triggered.connect(self._clear_active_tools)
+        self.addAction(self._act_clear)
+
+    def _clear_active_tools(self):
+        """Detiene cualquier herramienta activa y limpia el visor."""
+        self.viewport.disable_tools()
+        self._update_status(tr("status.ready"))
+        logger.info("Herramientas limpiadas por el usuario")
 
     # ==================================================================
     # Signal connections
@@ -670,15 +651,157 @@ class MainWindow(QMainWindow):
     # --- Tools ---
     def _start_profile_tool(self):
         logger.info("Herramienta de perfil activada")
+        from app.ui.viewport.profile_tool import ProfileDialog
+        
+        if not hasattr(self, "_profile_dialog") or self._profile_dialog is None:
+            self._profile_dialog = ProfileDialog(self.layer_manager, self)
+            
+        entry = self.layer_manager.active_layer
+        if entry and entry.layer.bounds:
+            b = entry.layer.bounds
+            # Pre-fill with a diagonal line across the layer as a starting point
+            if len(b) == 6:
+                self._profile_dialog.set_coordinates(b[0], b[1], b[3], b[4])
+            elif len(b) == 4:
+                self._profile_dialog.set_coordinates(b[0], b[1], b[2], b[3])
+                
+        self._profile_dialog.show()
+        self._profile_dialog.raise_()
+        self._profile_dialog.activateWindow()
+        
+        # Habilitar selección de puntos para el perfil
+        self._profile_points = []
+        def on_profile_pick(x, y, z):
+            self._profile_points.append((x, y, z))
+            if len(self._profile_points) == 1:
+                self._update_status("Selecciona el punto final del perfil")
+            elif len(self._profile_points) == 2:
+                p1, p2 = self._profile_points
+                # Dibujar línea final
+                self.viewport.add_temporary_line(p1, p2, color="#ffff00")
+                
+                self._profile_dialog.set_coordinates(p1[0], p1[1], p2[0], p2[1])
+                self._profile_dialog._on_calculate()
+                self._profile_points = []
+                self._update_status("Perfil calculado. Pulsa Esc para limpiar.")
+
+        self.viewport.enable_point_picking(on_profile_pick)
+        self._update_status("Selecciona el punto de inicio del perfil")
 
     def _start_distance_tool(self):
         logger.info("Herramienta de distancia activada")
+        self.viewport.enable_distance_tool()
+        self._update_status("Usa los tiradores para medir distancias")
 
     def _start_area_tool(self):
         logger.info("Herramienta de área activada")
+        self._area_points = []
+        self.viewport.enable_point_picking(self._on_area_point_picked)
+        self._update_status("Selecciona al menos 3 puntos para cerrar el área")
+
+    def _on_area_point_picked(self, x, y, z):
+        logger.info(f"Área: punto recibido ({x:.2f}, {y:.2f}, {z:.2f})")
+        new_point = [x, y, z]
+        if self._area_points:
+            last_point = self._area_points[-1]
+            self.viewport.add_temporary_line(last_point, new_point, color="#ffff00")
+            
+        self._area_points.append(new_point)
+        
+        if len(self._area_points) >= 3:
+            # Línea de cierre provisional
+            self.viewport.add_temporary_line(self._area_points[-1], self._area_points[0], color="#ffff00")
+            
+            # Cálculo Shoelace
+            pts = np.array(self._area_points)
+            area = 0.5 * np.abs(np.dot(pts[:,0], np.roll(pts[:,1], 1)) - np.dot(pts[:,1], np.roll(pts[:,0], 1)))
+            
+            logger.info(f"Área actual: {area:.2f} m2")
+            self._update_status(f"Puntos: {len(self._area_points)} | Área: {area:.2f} m². Esc para limpiar.")
+        else:
+            self._update_status(f"Seleccionado punto {len(self._area_points)}. Mínimo 3 para área.")
+
+    def _calculate_area(self):
+        from app.processing.measurements import measure_area
+        entry = self.layer_manager.active_layer
+        
+        # Necesitamos un raster para área superficial, si no hay usamos el primero disponible
+        raster_entry = entry if (entry and entry.is_raster) else None
+        if not raster_entry:
+            rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
+            if rasters:
+                raster_entry = rasters[0]
+        
+        polygon = np.array(self._area_points)
+        
+        if raster_entry:
+            res = measure_area(raster_entry.layer, polygon)
+            msg = (f"Área planimétrica: {res['planimetric_area_m2']:.2f} m²\n"
+                   f"Área superficial: {res['surface_area_m2']:.2f} m²\n"
+                   f"Hectáreas: {res['planimetric_area_ha']:.4f} ha")
+        else:
+            # Solo planimétrica simple (Shoelace formula)
+            x = polygon[:, 0]
+            y = polygon[:, 1]
+            area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+            msg = f"Área planimétrica: {area:.2f} m²\n(No hay capa raster para calcular área superficial)"
+            
+        QMessageBox.information(self, "Resultado de Área", msg)
 
     def _start_volume_tool(self):
         logger.info("Herramienta de volumen activada")
+        from PyQt6.QtWidgets import QInputDialog
+        z_ref, ok = QInputDialog.getDouble(self, "Volumen", "Nivel de referencia (Z):", 0, -10000, 10000, 2)
+        if ok:
+            self._volume_ref_z = z_ref
+            self._area_points = [] # Reutilizamos para el polígono
+            self.viewport.enable_point_picking(self._on_volume_point_picked)
+            self._update_status(f"Selecciona polígono para volumen (Z ref={z_ref})")
+
+    def _on_volume_point_picked(self, x, y, z):
+        new_point = [x, y, z]
+        if self._area_points:
+            last_point = self._area_points[-1]
+            self.viewport.add_temporary_line(last_point, new_point, color="#ffff00")
+            
+        self._area_points.append(new_point)
+        if len(self._area_points) >= 3:
+            # Línea de cierre
+            p_first = self._area_points[0]
+            p_last = self._area_points[-1]
+            self.viewport.add_temporary_line(p_last, p_first, color="#ffff00")
+            
+            msg = f"Puntos: {len(self._area_points)}\n¿Calcular volumen?"
+            reply = QMessageBox.question(self, "Cálculo de Volumen", msg,
+                                       QMessageBox.StandardButton.Yes | 
+                                       QMessageBox.StandardButton.No |
+                                       QMessageBox.StandardButton.Cancel)
+            if reply == QMessageBox.StandardButton.Yes:
+                self._calculate_volume()
+                self._update_status("Volumen calculado. Pulsa Esc para limpiar.")
+            elif reply == QMessageBox.StandardButton.Cancel:
+                self.viewport.disable_tools()
+                self._update_status(tr("status.ready"))
+
+    def _calculate_volume(self):
+        from app.processing.measurements import calculate_volume
+        rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
+        if not rasters:
+            QMessageBox.warning(self, "Error", "Se requiere una capa Raster (MDT) para calcular volúmenes.")
+            return
+            
+        raster_entry = rasters[0] # Usar el primer raster (MDT)
+        polygon = np.array(self._area_points)
+        
+        try:
+            res = calculate_volume(raster_entry.layer, self._volume_ref_z, polygon)
+            msg = (f"Corte: {res['cut_volume_m3']:.2f} m³\n"
+                   f"Relleno: {res['fill_volume_m3']:.2f} m³\n"
+                   f"Neto: {res['net_volume_m3']:.2f} m³\n"
+                   f"Área base: {res['area_m2']:.2f} m²")
+            QMessageBox.information(self, "Resultado de Volumen", msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
 
     # --- Export ---
     def _show_export_dialog(self):

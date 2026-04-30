@@ -42,6 +42,12 @@ class Viewport3D(QWidget):
         self._current_actors = {}  # {layer_name: actor}
         self._point_size = DEFAULT_POINT_SIZE
         self._colorize_mode = COLORIZE_HEIGHT
+        
+        # Tools state
+        self._picked_points = []
+        self._measuring_widget = None
+        self._picking_callback = None
+        self._temp_actors = []  # Actores temporales (líneas, puntos de medida)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -58,83 +64,53 @@ class Viewport3D(QWidget):
 
         # Configurar interacción
         self.plotter.enable_trackball_style()
-        self._setup_camera_controls()
+        self.plotter.interactor.installEventFilter(self)
 
-    def _setup_camera_controls(self):
-        step = 5.0  # metros por paso (se puede ajustar luego o hacerlo dinámico)
-        
-        def move_forward():
-            pos = np.array(self.plotter.camera.position)
-            foc = np.array(self.plotter.camera.focal_point)
-            vec = foc - pos
-            norm = np.linalg.norm(vec)
-            if norm == 0: return
-            vec = vec / norm * step
-            self.plotter.camera.position = pos + vec
-            self.plotter.camera.focal_point = foc + vec
-            self.plotter.render()
-            
-        def move_backward():
-            pos = np.array(self.plotter.camera.position)
-            foc = np.array(self.plotter.camera.focal_point)
-            vec = foc - pos
-            norm = np.linalg.norm(vec)
-            if norm == 0: return
-            vec = vec / norm * step
-            self.plotter.camera.position = pos - vec
-            self.plotter.camera.focal_point = foc - vec
-            self.plotter.render()
-            
-        def move_up():
-            up = np.array(self.plotter.camera.up)
-            norm = np.linalg.norm(up)
-            if norm == 0: return
-            up = up / norm * step
-            self.plotter.camera.position = np.array(self.plotter.camera.position) + up
-            self.plotter.camera.focal_point = np.array(self.plotter.camera.focal_point) + up
-            self.plotter.render()
-            
-        def move_down():
-            up = np.array(self.plotter.camera.up)
-            norm = np.linalg.norm(up)
-            if norm == 0: return
-            up = up / norm * step
-            self.plotter.camera.position = np.array(self.plotter.camera.position) - up
-            self.plotter.camera.focal_point = np.array(self.plotter.camera.focal_point) - up
-            self.plotter.render()
-            
-        def move_left():
-            pos = np.array(self.plotter.camera.position)
-            foc = np.array(self.plotter.camera.focal_point)
-            up = np.array(self.plotter.camera.up)
-            vec = foc - pos
-            left = np.cross(up, vec)
-            norm = np.linalg.norm(left)
-            if norm == 0: return
-            left = left / norm * step
-            self.plotter.camera.position = pos + left
-            self.plotter.camera.focal_point = foc + left
-            self.plotter.render()
-            
-        def move_right():
-            pos = np.array(self.plotter.camera.position)
-            foc = np.array(self.plotter.camera.focal_point)
-            up = np.array(self.plotter.camera.up)
-            vec = foc - pos
-            right = np.cross(vec, up)
-            norm = np.linalg.norm(right)
-            if norm == 0: return
-            right = right / norm * step
-            self.plotter.camera.position = pos + right
-            self.plotter.camera.focal_point = foc + right
-            self.plotter.render()
-            
-        self.plotter.add_key_event('w', move_forward)
-        self.plotter.add_key_event('s', move_backward)
-        self.plotter.add_key_event('a', move_left)
-        self.plotter.add_key_event('d', move_right)
-        self.plotter.add_key_event('space', move_up)
-        self.plotter.add_key_event('c', move_down)
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QMouseEvent
+        from PyQt6.QtWidgets import QApplication
+
+        if hasattr(self, 'plotter') and obj == self.plotter.interactor:
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.RightButton:
+                    new_event = QMouseEvent(
+                        QEvent.Type.MouseButtonPress,
+                        event.position(),
+                        event.globalPosition(),
+                        Qt.MouseButton.MiddleButton,
+                        (event.buttons() & ~Qt.MouseButton.RightButton) | Qt.MouseButton.MiddleButton,
+                        event.modifiers()
+                    )
+                    QApplication.postEvent(obj, new_event)
+                    return True
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                if event.button() == Qt.MouseButton.RightButton:
+                    new_event = QMouseEvent(
+                        QEvent.Type.MouseButtonRelease,
+                        event.position(),
+                        event.globalPosition(),
+                        Qt.MouseButton.MiddleButton,
+                        (event.buttons() & ~Qt.MouseButton.RightButton),
+                        event.modifiers()
+                    )
+                    QApplication.postEvent(obj, new_event)
+                    return True
+            elif event.type() == QEvent.Type.MouseMove:
+                if event.buttons() & Qt.MouseButton.RightButton:
+                    new_event = QMouseEvent(
+                        QEvent.Type.MouseMove,
+                        event.position(),
+                        event.globalPosition(),
+                        Qt.MouseButton.NoButton,
+                        (event.buttons() & ~Qt.MouseButton.RightButton) | Qt.MouseButton.MiddleButton,
+                        event.modifiers()
+                    )
+                    QApplication.postEvent(obj, new_event)
+                    return True
+        return super().eventFilter(obj, event)
+
+
 
     # ------------------------------------------------------------------
     # Point Cloud Display
@@ -353,9 +329,106 @@ class Viewport3D(QWidget):
         return self.plotter.screenshot(return_img=True)
 
     # ------------------------------------------------------------------
+    # Interactive Tools
+    # ------------------------------------------------------------------
+
+    def enable_point_picking(self, callback=None):
+        """Habilita la selección de puntos en el viewport."""
+        logger.info("Habilitando selección de puntos...")
+        self.disable_tools()
+        self._picking_callback = callback
+        
+        # Intentamos habilitar la selección de puntos
+        # Nota: En algunas versiones de PyVista puede requerir pulsar 'P'
+        # Intentamos forzar que funcione con click izquierdo si es posible
+        self.plotter.enable_point_picking(
+            callback=self._on_point_picked,
+            show_message="",
+            color="#ffff00",
+            point_size=12,
+            use_picker=True
+        )
+        logger.info("Selección de puntos lista. Intenta hacer clic en los puntos.")
+
+    def _on_point_picked(self, point):
+        """Callback cuando se selecciona un punto."""
+        logger.debug(f"Evento de picking disparado. Punto: {point}")
+        if point is None:
+            logger.warning("Picking disparado pero no se encontró ningún punto.")
+            return
+            
+        x, y, z = point
+        logger.info(f"Punto detectado: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+        
+        # Añadir marcador visual (esfera resaltada)
+        sphere = pv.Sphere(radius=0.2, center=point)
+        actor = self.plotter.add_mesh(sphere, color="#ffff00", name=f"_tmp_point_{len(self._temp_actors)}", always_on_top=True)
+        self._temp_actors.append(actor)
+        
+        self.point_picked.emit(x, y, z)
+        if self._picking_callback:
+            logger.debug("Llamando al callback de la herramienta...")
+            self._picking_callback(x, y, z)
+
+    def add_temporary_line(self, p1, p2, color="#ffff00"):
+        """Dibuja una línea temporal resaltada entre dos puntos."""
+        line = pv.Line(p1, p2)
+        actor = self.plotter.add_mesh(
+            line, 
+            color=color, 
+            line_width=12, 
+            name=f"_tmp_line_{len(self._temp_actors)}",
+            render_lines_as_tubes=True,
+            smooth_shading=True,
+            always_on_top=True
+        )
+        
+        # Forzar que se vea por encima
+        try:
+            actor.GetProperty().SetLighting(False)
+            actor.GetProperty().SetAmbient(1.0)
+        except:
+            pass
+            
+        self._temp_actors.append(actor)
+        return actor
+
+    def enable_distance_tool(self):
+        """Habilita la herramienta de medición de distancia."""
+        self.disable_tools()
+        # El widget de medición de PyVista usa amarillo por defecto
+        self._measuring_widget = self.plotter.add_measurement_widget(color="#ffff00")
+        logger.info("Herramienta de distancia habilitada")
+
+    def clear_temporary_graphics(self):
+        """Limpia líneas y puntos de selección temporales."""
+        for actor in self._temp_actors:
+            try:
+                self.plotter.remove_actor(actor)
+            except:
+                pass
+        self._temp_actors = []
+        self.plotter.render()
+
+    def disable_tools(self):
+        """Deshabilita herramientas interactivas y limpia widgets."""
+        self.plotter.disable_picking()
+        self.clear_temporary_graphics()
+        if self._measuring_widget:
+            try:
+                self.plotter.clear_measurements()
+            except:
+                pass
+            self._measuring_widget = None
+        self._picking_callback = None
+        logger.info("Herramientas interactivas deshabilitadas")
+
+    # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
+        self.plotter.close()
+        super().closeEvent(event)
         self.plotter.close()
         super().closeEvent(event)

@@ -24,8 +24,9 @@ logger = get_logger("ui.profile_tool")
 class ProfileDialog(QDialog):
     """Diálogo de perfil topográfico con gráfico embebido."""
 
-    def __init__(self, parent=None):
+    def __init__(self, layer_manager, parent=None):
         super().__init__(parent)
+        self.layer_manager = layer_manager
         self.setWindowTitle(tr("action.profile"))
         self.setMinimumSize(700, 500)
         self._setup_ui()
@@ -75,11 +76,39 @@ class ProfileDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
+        btn_calc = QPushButton("Calcular")
+        btn_calc.clicked.connect(self._on_calculate)
+        btn_layout.addWidget(btn_calc)
+
         btn_close = QPushButton(tr("dialog.close"))
         btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(btn_close)
 
         layout.addLayout(btn_layout)
+
+    def _on_calculate(self):
+        entry = self.layer_manager.active_layer
+        if not entry:
+            self._info.setText("Error: Selecciona una capa activa primero.")
+            return
+
+        x1 = self._x1.value()
+        y1 = self._y1.value()
+        x2 = self._x2.value()
+        y2 = self._y2.value()
+
+        try:
+            if entry.is_point_cloud:
+                dist, elev = extract_profile_from_cloud(entry.layer, (x1, y1), (x2, y2))
+            elif entry.is_raster:
+                dist, elev = extract_profile(entry.layer, (x1, y1), (x2, y2))
+            else:
+                return
+
+            self.plot_profile(dist, elev, title=f"Perfil - {entry.name}")
+        except Exception as e:
+            logger.error(f"Error calculando perfil: {e}")
+            self._info.setText(f"Error: {e}")
 
     def _style_axes(self):
         """Aplica estilo oscuro al gráfico."""
