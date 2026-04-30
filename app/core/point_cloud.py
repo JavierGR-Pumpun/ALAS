@@ -99,8 +99,8 @@ class PointCloudData:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_file(cls, path: str) -> "PointCloudData":
-        """Lee un archivo LAS/LAZ y devuelve PointCloudData."""
+    def from_file(cls, path: str, max_points: int = None) -> "PointCloudData":
+        """Lee un archivo LAS/LAZ y devuelve PointCloudData. Si max_points se especifica, decima la nube al cargar."""
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Archivo no encontrado: {path}")
@@ -108,15 +108,21 @@ class PointCloudData:
         logger.info(f"Leyendo nube de puntos: {path.name}")
         las = laspy.read(str(path))
 
+        if max_points is not None and max_points < las.header.point_count:
+            logger.info(f"Decimando nube en carga: {las.header.point_count:,} -> {max_points:,} puntos")
+            rng = np.random.default_rng()
+            indices = np.sort(rng.choice(las.header.point_count, max_points, replace=False))
+            las.points = las.points[indices]
+
         pc = cls()
         pc.file_path = str(path)
         pc.name = path.stem
 
         # Coordenadas
         pc.xyz = np.column_stack([
-            las.x.astype(np.float64),
-            las.y.astype(np.float64),
-            las.z.astype(np.float64),
+            np.array(las.x, dtype=np.float64),
+            np.array(las.y, dtype=np.float64),
+            np.array(las.z, dtype=np.float64),
         ])
 
         # Intensidad

@@ -196,7 +196,7 @@ class MainWindow(QMainWindow):
         menu_view.addSeparator()
 
         # Language submenu
-        menu_lang = menu_view.addMenu("🌐 Idioma / Language")
+        menu_lang = menu_view.addMenu("Idioma / Language")
         act_es = QAction("Español", self)
         act_es.triggered.connect(lambda: self._change_language("es"))
         menu_lang.addAction(act_es)
@@ -288,31 +288,31 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         # File actions
-        toolbar.addAction("📂 " + tr("action.open").replace("...", ""), self._open_file)
+        toolbar.addAction(tr("action.open").replace("...", ""), self._open_file)
         toolbar.addSeparator()
 
         # View actions
-        toolbar.addAction("⟲ Reset", self.viewport.reset_camera)
-        toolbar.addAction("⬆ Top", self.viewport.set_view_top)
+        toolbar.addAction("Reset", self.viewport.reset_camera)
+        toolbar.addAction("Top", self.viewport.set_view_top)
         toolbar.addSeparator()
 
         # Processing actions
-        toolbar.addAction("🏔 " + tr("action.classify").replace("...", ""), self._show_classification_dialog)
-        toolbar.addAction("📐 DEM", self._show_dem_dialog)
+        toolbar.addAction(tr("action.classify").replace("...", ""), self._show_classification_dialog)
+        toolbar.addAction("DEM", self._show_dem_dialog)
         toolbar.addSeparator()
 
         # Analysis
-        toolbar.addAction("📊 " + tr("action.geomorphology").replace("...", ""), self._show_geomorphology_dialog)
-        toolbar.addAction("💧 " + tr("action.hydrology").replace("...", ""), self._show_hydrology_dialog)
-        toolbar.addAction("🌲 " + tr("action.vegetation").replace("...", ""), self._show_vegetation_dialog)
+        toolbar.addAction(tr("action.geomorphology").replace("...", ""), self._show_geomorphology_dialog)
+        toolbar.addAction(tr("action.hydrology").replace("...", ""), self._show_hydrology_dialog)
+        toolbar.addAction(tr("action.vegetation").replace("...", ""), self._show_vegetation_dialog)
         toolbar.addSeparator()
 
         # Tools
-        toolbar.addAction("📏 " + tr("action.profile"), self._start_profile_tool)
+        toolbar.addAction(tr("action.profile"), self._start_profile_tool)
         toolbar.addSeparator()
 
         # Export
-        toolbar.addAction("💾 " + tr("action.export").replace("...", ""), self._show_export_dialog)
+        toolbar.addAction(tr("action.export").replace("...", ""), self._show_export_dialog)
 
     # ==================================================================
     # Status Bar
@@ -374,10 +374,19 @@ class MainWindow(QMainWindow):
         self.layer_panel.export_layer_requested.connect(self._export_layer)
 
         # Layer manager
-        self.layer_manager.layer_added.connect(lambda _: self._update_points_display())
+        self.layer_manager.layer_added.connect(self._on_layer_added)
         self.layer_manager.layer_removed.connect(lambda _: self._update_points_display())
         self.layer_manager.layer_visibility_changed.connect(self._on_visibility_changed)
         self.layer_manager.active_layer_changed.connect(self._on_active_layer_changed)
+
+    def _on_layer_added(self, index: int):
+        self._update_points_display()
+        entry = self.layer_manager.get_entry(index)
+        if entry:
+            if entry.is_point_cloud:
+                self.viewport.display_point_cloud(entry.layer, name=entry.name)
+            elif entry.is_raster:
+                self.viewport.display_raster_surface(entry.layer, name=entry.name)
 
     # ==================================================================
     # File operations
@@ -407,41 +416,83 @@ class MainWindow(QMainWindow):
 
         ext = Path(file_path).suffix.lower()
         self._update_status(tr("status.loading"))
+        
+        # Barra de progreso indeterminada (animación contínua)
+        self._progress_bar.setRange(0, 0)
         self._show_progress(True)
 
-        try:
-            if ext in POINT_CLOUD_EXTENSIONS:
-                pc = PointCloudData.from_file(file_path)
-                idx = self.layer_manager.add_layer(pc)
-                self.viewport.display_point_cloud(pc)
-                self.viewport.reset_camera()
-
-                # CRS handling: leer del archivo, recordar
-                if pc.crs_epsg:
-                    self._update_crs_display(pc.crs_epsg)
-                    self.preferences.last_crs = pc.crs_epsg
-                elif not pc.crs_epsg:
-                    self._update_crs_display(None)
-                    self._prompt_crs_assignment(pc)
-
-            elif ext in RASTER_EXTENSIONS:
-                rl = RasterLayer.from_file(file_path)
-                self.layer_manager.add_layer(rl)
-                self.viewport.display_raster_surface(rl)
-                self.viewport.reset_camera()
-
-                if rl.crs_epsg:
-                    self._update_crs_display(rl.crs_epsg)
-
-            self._update_status(tr("success.loaded"))
-            self.project.loaded_files.append(file_path)
-
-        except Exception as e:
-            logger.error(f"Error cargando {file_path}: {e}")
-            QMessageBox.critical(self, tr("error.processing_failed"), str(e))
-            self._update_status(tr("status.ready"))
-        finally:
+        kwargs = {}
+        if ext in POINT_CLOUD_EXTENSIONS:
+            loader_func = PointCloudData.from_file
+            try:
+                import laspy
+                from PyQt6.QtWidgets import QMessageBox, QInputDialog
+                with laspy.open(file_path) as f:
+                    total_points = f.header.point_count
+                
+                if total_points > 1000000:  # Only ask if > 1M points
+                    reply = QMessageBox.question(
+                        self,
+                        "Cargar Nube de Puntos",
+                        f"El archivo tiene {total_points:,} puntos.\n¿Deseas decirmarla al cargar para ahorrar memoria y tiempo?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        target, ok = QInputDialog.getInt(
+                            self, "Decimar", "Número objetivo de puntos:",
+                            min(5000000, total_points), 10000, total_points, 100000
+                        )
+                        if ok:
+                            kwargs['max_points'] = target
+            except Exception as e:
+                logger.warning(f"No se pudo leer la cabecera rápida de {file_path}: {e}")
+        elif ext in RASTER_EXTENSIONS:
+            loader_func = RasterLayer.from_file
+        else:
+            self._progress_bar.setRange(0, 100)
             self._show_progress(False)
+            self._update_status(tr("status.ready"))
+            return
+
+        worker = FileLoadWorker(file_path, loader_func, **kwargs)
+        
+        # Conectar señales
+        worker.signals.result.connect(lambda res: self._on_file_loaded(res, ext, file_path))
+        worker.signals.error.connect(lambda err: self._on_file_load_error(err, file_path))
+        worker.signals.finished.connect(self._on_file_load_finished)
+        
+        self.thread_pool.start(worker)
+
+    def _on_file_loaded(self, result, ext, file_path):
+        if ext in POINT_CLOUD_EXTENSIONS:
+            self.layer_manager.add_layer(result)
+            self.viewport.reset_camera()
+
+            if result.crs_epsg:
+                self._update_crs_display(result.crs_epsg)
+                self.preferences.last_crs = result.crs_epsg
+            else:
+                self._update_crs_display(None)
+                self._prompt_crs_assignment(result)
+
+        elif ext in RASTER_EXTENSIONS:
+            self.layer_manager.add_layer(result)
+            self.viewport.reset_camera()
+
+            if result.crs_epsg:
+                self._update_crs_display(result.crs_epsg)
+
+        self._update_status(tr("success.loaded"))
+        self.project.loaded_files.append(file_path)
+
+    def _on_file_load_error(self, error_msg, file_path):
+        logger.error(f"Error cargando {file_path}: {error_msg}")
+        QMessageBox.critical(self, tr("error.processing_failed"), str(error_msg))
+        self._update_status(tr("status.ready"))
+
+    def _on_file_load_finished(self):
+        self._progress_bar.setRange(0, 100)
+        self._show_progress(False)
 
     def _prompt_crs_assignment(self, pc: PointCloudData):
         """Si el archivo no tiene CRS, preguntar al usuario."""
@@ -550,7 +601,6 @@ class MainWindow(QMainWindow):
             raster = dlg.get_result()
             if raster is not None:
                 self.layer_manager.add_layer(raster)
-                self.viewport.display_raster_surface(raster)
                 self._update_status(tr("success.dem_generated"))
 
     def _show_geomorphology_dialog(self):
@@ -589,7 +639,6 @@ class MainWindow(QMainWindow):
             return
         merged = PointCloudData.merge(clouds, "merged")
         self.layer_manager.add_layer(merged)
-        self.viewport.display_point_cloud(merged)
         self.viewport.reset_camera()
 
     def _filter_noise(self):
@@ -601,7 +650,6 @@ class MainWindow(QMainWindow):
             self._update_status(tr("status.processing"))
             result = filter_noise(entry.layer)
             idx = self.layer_manager.add_layer(result)
-            self.viewport.display_point_cloud(result)
             self._update_status(tr("status.ready"))
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -618,7 +666,6 @@ class MainWindow(QMainWindow):
             from app.processing.preprocessing import decimate
             result = decimate(entry.layer, voxel_size=voxel)
             self.layer_manager.add_layer(result)
-            self.viewport.display_point_cloud(result)
 
     # --- Tools ---
     def _start_profile_tool(self):

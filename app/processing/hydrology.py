@@ -21,8 +21,8 @@ def condition_dem(dtm: RasterLayer) -> RasterLayer:
     logger.info("Acondicionando MDT para hidrología...")
     from pysheds.grid import Grid
 
-    grid = _raster_to_pysheds_grid(dtm)
-    dem = grid.read_raster(dtm.file_path) if dtm.file_path else dtm.get_band(0)
+    grid, path = _get_grid_and_path(dtm)
+    dem = grid.read_raster(path)
 
     # Fill pits
     pit_filled = grid.fill_pits(dem)
@@ -183,32 +183,28 @@ def detect_ponding_zones(dtm: RasterLayer,
 # Helpers
 # ------------------------------------------------------------------
 
-def _raster_to_pysheds_grid(dtm: RasterLayer):
-    """Convierte un RasterLayer a Grid de pysheds."""
+def _get_grid_and_path(dtm: RasterLayer):
+    """Obtiene el Grid de pysheds y la ruta al raster."""
     from pysheds.grid import Grid
     import tempfile
 
     # pysheds trabaja mejor con archivos
     if dtm.file_path:
-        return Grid.from_raster(dtm.file_path)
+        return Grid.from_raster(dtm.file_path), dtm.file_path
 
     # Si no hay archivo, guardar temporalmente
     tmp = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
     tmp.close()
     dtm.to_geotiff(tmp.name)
-    return Grid.from_raster(tmp.name)
+    return Grid.from_raster(tmp.name), tmp.name
 
 
 def _prepare_dem(dtm: RasterLayer):
     """Prepara el MDT para análisis hidrológico."""
     from pysheds.grid import Grid
 
-    grid = _raster_to_pysheds_grid(dtm)
-
-    if dtm.file_path:
-        dem = grid.read_raster(dtm.file_path)
-    else:
-        dem = dtm.get_band(0)
+    grid, path = _get_grid_and_path(dtm)
+    dem = grid.read_raster(path)
 
     # Acondicionar
     pit_filled = grid.fill_pits(dem)

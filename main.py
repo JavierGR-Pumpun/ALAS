@@ -29,7 +29,7 @@ def main():
 
     # --- Splash Screen ---
     splash_pixmap = QPixmap(600, 380)
-    splash_pixmap.fill(QColor("#1a1a2e"))
+    splash_pixmap.fill(QColor("#000000"))
 
     painter = QPainter(splash_pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -37,13 +37,13 @@ def main():
     # Fondo gradiente
     from PyQt6.QtGui import QLinearGradient
     gradient = QLinearGradient(0, 0, 600, 380)
-    gradient.setColorAt(0, QColor("#1a1a2e"))
-    gradient.setColorAt(1, QColor("#16162a"))
+    gradient.setColorAt(0, QColor("#000000"))
+    gradient.setColorAt(1, QColor("#050505"))
     painter.fillRect(splash_pixmap.rect(), gradient)
 
     # Accent line
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor("#7c3aed"))
+    painter.setBrush(QColor("#555555"))
     painter.drawRect(0, 340, 600, 4)
 
     # Title
@@ -56,7 +56,7 @@ def main():
     # Subtitle
     font_sub = QFont("Segoe UI", 14)
     painter.setFont(font_sub)
-    painter.setPen(QColor("#a855f7"))
+    painter.setPen(QColor("#888888"))
     painter.drawText(splash_pixmap.rect().adjusted(0, 140, 0, -80),
                      Qt.AlignmentFlag.AlignHCenter,
                      "Aerial LiDAR Analysis Software")
@@ -69,13 +69,6 @@ def main():
                      Qt.AlignmentFlag.AlignHCenter,
                      "v1.0.0")
 
-    # Loading text
-    font_load = QFont("Segoe UI", 10)
-    painter.setFont(font_load)
-    painter.setPen(QColor("#c0c0d0"))
-    painter.drawText(splash_pixmap.rect().adjusted(20, 0, -20, -20),
-                     Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
-                     "Inicializando...")
 
     painter.end()
 
@@ -109,7 +102,7 @@ def main():
     splash.showMessage(
         "Listo",
         Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
-        QColor("#7c3aed")
+        QColor("#555555")
     )
     app.processEvents()
 

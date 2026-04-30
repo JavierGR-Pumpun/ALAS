@@ -58,6 +58,83 @@ class Viewport3D(QWidget):
 
         # Configurar interacción
         self.plotter.enable_trackball_style()
+        self._setup_camera_controls()
+
+    def _setup_camera_controls(self):
+        step = 5.0  # metros por paso (se puede ajustar luego o hacerlo dinámico)
+        
+        def move_forward():
+            pos = np.array(self.plotter.camera.position)
+            foc = np.array(self.plotter.camera.focal_point)
+            vec = foc - pos
+            norm = np.linalg.norm(vec)
+            if norm == 0: return
+            vec = vec / norm * step
+            self.plotter.camera.position = pos + vec
+            self.plotter.camera.focal_point = foc + vec
+            self.plotter.render()
+            
+        def move_backward():
+            pos = np.array(self.plotter.camera.position)
+            foc = np.array(self.plotter.camera.focal_point)
+            vec = foc - pos
+            norm = np.linalg.norm(vec)
+            if norm == 0: return
+            vec = vec / norm * step
+            self.plotter.camera.position = pos - vec
+            self.plotter.camera.focal_point = foc - vec
+            self.plotter.render()
+            
+        def move_up():
+            up = np.array(self.plotter.camera.up)
+            norm = np.linalg.norm(up)
+            if norm == 0: return
+            up = up / norm * step
+            self.plotter.camera.position = np.array(self.plotter.camera.position) + up
+            self.plotter.camera.focal_point = np.array(self.plotter.camera.focal_point) + up
+            self.plotter.render()
+            
+        def move_down():
+            up = np.array(self.plotter.camera.up)
+            norm = np.linalg.norm(up)
+            if norm == 0: return
+            up = up / norm * step
+            self.plotter.camera.position = np.array(self.plotter.camera.position) - up
+            self.plotter.camera.focal_point = np.array(self.plotter.camera.focal_point) - up
+            self.plotter.render()
+            
+        def move_left():
+            pos = np.array(self.plotter.camera.position)
+            foc = np.array(self.plotter.camera.focal_point)
+            up = np.array(self.plotter.camera.up)
+            vec = foc - pos
+            left = np.cross(up, vec)
+            norm = np.linalg.norm(left)
+            if norm == 0: return
+            left = left / norm * step
+            self.plotter.camera.position = pos + left
+            self.plotter.camera.focal_point = foc + left
+            self.plotter.render()
+            
+        def move_right():
+            pos = np.array(self.plotter.camera.position)
+            foc = np.array(self.plotter.camera.focal_point)
+            up = np.array(self.plotter.camera.up)
+            vec = foc - pos
+            right = np.cross(vec, up)
+            norm = np.linalg.norm(right)
+            if norm == 0: return
+            right = right / norm * step
+            self.plotter.camera.position = pos + right
+            self.plotter.camera.focal_point = foc + right
+            self.plotter.render()
+            
+        self.plotter.add_key_event('w', move_forward)
+        self.plotter.add_key_event('s', move_backward)
+        self.plotter.add_key_event('a', move_left)
+        self.plotter.add_key_event('d', move_right)
+        self.plotter.add_key_event('space', move_up)
+        self.plotter.add_key_event('c', move_down)
 
     # ------------------------------------------------------------------
     # Point Cloud Display
@@ -183,8 +260,7 @@ class Viewport3D(QWidget):
             scalars="Elevation",
             cmap="terrain",
             nan_opacity=0,
-            show_scalar_bar=True,
-            scalar_bar_args={"title": "Elevación (m)", "color": "white"},
+            show_scalar_bar=False,
             name=name,
         )
         self._current_actors[name] = actor

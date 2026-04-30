@@ -176,7 +176,7 @@ DEFAULT_FLOW_ACC_THRESHOLD = 1000  # celdas acumuladas para red de drenaje
 # Visualization defaults
 # ---------------------------------------------------------------------------
 DEFAULT_POINT_SIZE = 2.0
-DEFAULT_BACKGROUND_COLOR = "#1a1a2e"
+DEFAULT_BACKGROUND_COLOR = "#000000"
 MAX_VIEWPORT_POINTS = 5_000_000   # decimado automático si se excede
 VOXEL_DOWNSAMPLE_SIZE = 0.5       # metros por defecto
 
