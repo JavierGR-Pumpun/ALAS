@@ -397,7 +397,7 @@ class Viewport3D(QWidget):
         """Habilita la herramienta de medición de distancia."""
         self.disable_tools()
         # El widget de medición de PyVista usa amarillo por defecto
-        self._measuring_widget = self.plotter.add_measurement_widget(color="#ffff00")
+        self._measuring_widget = self.plotter.add_measurement_widget(color="#000000")
         logger.info("Herramienta de distancia habilitada")
 
     def clear_temporary_graphics(self):
