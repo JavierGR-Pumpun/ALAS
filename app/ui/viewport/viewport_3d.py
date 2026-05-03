@@ -7,7 +7,8 @@ import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt
+import sys
 from typing import Optional
 
 from app.core.point_cloud import PointCloudData
@@ -35,7 +36,6 @@ class Viewport3D(QWidget):
 
     point_picked = pyqtSignal(float, float, float)   # x, y, z
     cursor_moved = pyqtSignal(float, float, float)    # coordenadas bajo cursor
-    area_updated = pyqtSignal(float)                  # área calculada en m²
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,7 +50,6 @@ class Viewport3D(QWidget):
         self._picking_callback = None
         self._temp_actors = []       # Actores temporales (líneas, puntos de medida)
         self._picking_active = False # Flag para desactivar remap de botones durante picking
-        self._area_points = []       # Puntos acumulados para herramienta de área
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -59,10 +58,17 @@ class Viewport3D(QWidget):
         # Configurar PyVista
         pv.global_theme.background = DEFAULT_BACKGROUND_COLOR
         pv.global_theme.font.color = "white"
-        pv.global_theme.anti_aliasing = "msaa"
+        
+        # En Windows MSAA puede ser muy lento, usamos FXAA o desactivamos
+        if sys.platform == "win32":
+            pv.global_theme.anti_aliasing = "fxaa"
+        else:
+            pv.global_theme.anti_aliasing = "msaa"
 
         self.plotter = QtInteractor(self)
-        self.plotter.enable_eye_dome_lighting()  # Mejor percepción de profundidad
+        
+        # El Eye Dome Lighting es excelente pero pesado, lo habilitamos con parámetros optimizados
+        self.plotter.enable_eye_dome_lighting() 
         layout.addWidget(self.plotter.interactor)
 
         # Configurar interacción
@@ -348,9 +354,10 @@ class Viewport3D(QWidget):
             show_message="",
             color="#ffff00",
             point_size=12,
-            use_picker=True
+            use_picker=True,
+            left_clicking=True
         )
-        logger.info("Selección de puntos lista. Haz clic en los puntos.")
+        logger.info("Selección de puntos lista. Haz clic izquierdo en los puntos.")
 
     def _on_point_picked(self, point):
         """Callback cuando se selecciona un punto."""
@@ -365,8 +372,7 @@ class Viewport3D(QWidget):
         sphere = pv.Sphere(radius=0.2, center=point)
         actor = self.plotter.add_mesh(
             sphere, color="#ffff00",
-            name=f"_tmp_point_{len(self._temp_actors)}",
-            always_on_top=True
+            name=f"_tmp_point_{len(self._temp_actors)}"
         )
         self._temp_actors.append(actor)
 
@@ -376,7 +382,7 @@ class Viewport3D(QWidget):
             self._picking_callback(x, y, z)
 
     def add_temporary_line(self, p1, p2, color="#ffff00"):
-        """Dibuja una línea temporal resaltada entre dos puntos."""
+        """Dibuja una linea temporal resaltada entre dos puntos."""
         line = pv.Line(p1, p2)
         actor = self.plotter.add_mesh(
             line,
@@ -385,7 +391,6 @@ class Viewport3D(QWidget):
             name=f"_tmp_line_{len(self._temp_actors)}",
             render_lines_as_tubes=True,
             smooth_shading=True,
-            always_on_top=True
         )
         try:
             actor.GetProperty().SetLighting(False)
@@ -396,76 +401,209 @@ class Viewport3D(QWidget):
         self._temp_actors.append(actor)
         return actor
 
+    def add_measurement_marker(self, p):
+        """
+        Marca un punto de medicion con el mismo estilo que la herramienta de area:
+        esfera negra de 14px.
+        """
+        pts = pv.PolyData([list(p)])
+        actor = self.plotter.add_mesh(
+            pts,
+            color="#000000",
+            point_size=14,
+            render_points_as_spheres=True,
+            name=f"_meas_marker_{len(self._temp_actors)}",
+            reset_camera=False,
+        )
+        self._temp_actors.append(actor)
+        return actor
+
+    def add_measurement_line(self, p1, p2):
+        """
+        Dibuja una linea de medicion con el mismo estilo que la herramienta de area:
+        negra, line_width=3, sin tubes.
+        """
+        line = pv.Line(p1, p2)
+        actor = self.plotter.add_mesh(
+            line,
+            color="#000000",
+            line_width=3,
+            name=f"_meas_line_{len(self._temp_actors)}",
+            reset_camera=False,
+        )
+        self._temp_actors.append(actor)
+        self.plotter.render()
+        return actor
+
     def enable_distance_tool(self):
-        """Habilita la herramienta de medición de distancia."""
+        """Habilita la herramienta de medicion de distancia."""
         self.disable_tools()
         self._picking_active = True
         self._measuring_widget = self.plotter.add_measurement_widget(color="#000000")
         logger.info("Herramienta de distancia habilitada")
 
-    def enable_area_tool(self):
+    def enable_world_picking(self, callback):
         """
-        Habilita la herramienta de medición de área.
-        El usuario hace clic para añadir vértices del polígono.
-        El área se recalcula en tiempo real con cada nuevo punto.
-        Emite la señal area_updated(float) con el área en m².
+        Habilita picking de coordenadas de mundo mediante vtkWorldPointPicker.
+        Usa el mismo mecanismo que la herramienta de area: lee del Z-buffer
+        con O(1), no requiere que el clic aterrice sobre la geometria.
+        callback(x, y, z) se llama en cada clic.
         """
+        import vtk as _vtk
+        self.disable_tools()
+        self._picking_active = True
+
+        wp_picker = _vtk.vtkWorldPointPicker()
+        self._wp_picker_ref = wp_picker
+
+        iren = self.plotter.iren.interactor
+        press_pos_ref = [None]
+
+        def _on_press(obj, event):
+            press_pos_ref[0] = iren.GetEventPosition()
+            obj.OnLeftButtonDown()
+
+        def _on_release(obj, event):
+            release_pos = iren.GetEventPosition()
+            press_pos   = press_pos_ref[0]
+            obj.OnLeftButtonUp()
+
+            if press_pos is None:
+                return
+            dx = release_pos[0] - press_pos[0]
+            dy = release_pos[1] - press_pos[1]
+            if (dx * dx + dy * dy) > 25:   # drag, not a click
+                return
+
+            wp_picker.Pick(press_pos[0], press_pos[1], 0, self.plotter.renderer)
+            p = wp_picker.GetPickPosition()
+            x, y, z = float(p[0]), float(p[1]), float(p[2])
+            logger.debug(f"World pick: ({x:.3f}, {y:.3f}, {z:.3f})")
+            callback(x, y, z)
+
+        style = iren.GetInteractorStyle()
+        self._wp_obs_press   = style.AddObserver("LeftButtonPressEvent",   _on_press)
+        self._wp_obs_release = style.AddObserver("LeftButtonReleaseEvent", _on_release)
+        self._wp_style_ref   = style
+
+    def enable_area_tool(self, on_vertex_added=None):
+        """
+        Habilita la herramienta de área.
+
+        Rendimiento:
+        - vtkWorldPointPicker: O(1) — lee el Z-buffer, NO traversa la geometría.
+        - Un único actor PolyData para todos los vértices (puntos grandes).
+        - Un único actor PolyData para todas las líneas, actualizado en cada clic.
+        - Click vs drag: si el ratón se mueve < 5 px entre press y release = clic.
+        """
+        import vtk as _vtk
         logger.info("Habilitando herramienta de área...")
         self.disable_tools()
         self._picking_active = True
-        self._area_points = []
+        self._area_vertices: list = []
+        self._area_press_pos = None
+        self._area_markers_actor = None
+        self._area_lines_actor   = None
 
-        def on_area_pick(point):
-            if point is None:
+        # WorldPointPicker: instantáneo, usa depth buffer
+        wp_picker = _vtk.vtkWorldPointPicker()
+        self._area_picker = wp_picker  # mantener referencia viva
+
+        iren = self.plotter.iren.interactor
+
+        def _on_press(obj, event):
+            self._area_press_pos = iren.GetEventPosition()
+            obj.OnLeftButtonDown()
+
+        def _on_release(obj, event):
+            release_pos = iren.GetEventPosition()
+            press_pos   = self._area_press_pos
+            obj.OnLeftButtonUp()
+
+            if press_pos is None:
+                return
+            dx = release_pos[0] - press_pos[0]
+            dy = release_pos[1] - press_pos[1]
+            if (dx * dx + dy * dy) > 25:   # > 5 px → arrastre, no clic
                 return
 
-            x, y, z = float(point[0]), float(point[1]), float(point[2])
-            self._area_points.append((x, y, z))
-            pts = self._area_points
-            logger.info(f"Vértice {len(pts)} añadido: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+            # Pick O(1): desprojecta las coordenadas de pantalla usando el Z-buffer
+            wp_picker.Pick(press_pos[0], press_pos[1], 0, self.plotter.renderer)
+            p = wp_picker.GetPickPosition()
+            x, y, z = float(p[0]), float(p[1]), float(p[2])
 
-            # Marcador visual del vértice
-            sphere = pv.Sphere(radius=0.2, center=(x, y, z))
-            actor = self.plotter.add_mesh(
-                sphere, color="#00ff00",
-                name=f"_area_pt_{len(self._temp_actors)}",
-                always_on_top=True
+            self._area_vertices.append((x, y, z))
+            pts = np.array(self._area_vertices, dtype=np.float32)
+
+            # --- Actor de vértices: un único PolyData con puntos grandes ---
+            markers = pv.PolyData(pts)
+            if self._area_markers_actor is not None:
+                self.plotter.remove_actor(self._area_markers_actor)
+            self._area_markers_actor = self.plotter.add_mesh(
+                markers,
+                color="#000000",
+                point_size=14,
+                render_points_as_spheres=True,
+                name="_area_markers",
+                reset_camera=False,
             )
-            self._temp_actors.append(actor)
 
-            # Línea al punto anterior
-            if len(pts) >= 2:
-                self.add_temporary_line(pts[-2], pts[-1], color="#00ff00")
+            # --- Actor de líneas: un único PolyData con segmentos ---
+            if len(self._area_vertices) >= 2:
+                n = len(pts)
+                cells = np.empty((n - 1) * 3, dtype=np.int_)
+                cells[0::3] = 2
+                cells[1::3] = np.arange(n - 1)
+                cells[2::3] = np.arange(1, n)
+                lines_pd = pv.PolyData()
+                lines_pd.points = pts
+                lines_pd.lines  = cells
+                if self._area_lines_actor is not None:
+                    self.plotter.remove_actor(self._area_lines_actor)
+                self._area_lines_actor = self.plotter.add_mesh(
+                    lines_pd,
+                    color="#000000",
+                    line_width=3,
+                    name="_area_lines",
+                    reset_camera=False,
+                )
 
-            # Con 3+ puntos: cerrar polígono y calcular área
-            if len(pts) >= 3:
-                # Redibujar cierre (se elimina y redibuja para que siempre sea el último segmento)
-                self.add_temporary_line(pts[-1], pts[0], color="#00ff00")
-                area = self._compute_polygon_area(pts)
-                logger.info(f"Área aproximada del polígono: {area:.4f} m²")
-                self.area_updated.emit(area)
+            self.plotter.render()
+            logger.debug(f"Área — vértice {len(self._area_vertices)}: ({x:.2f}, {y:.2f}, {z:.2f})")
 
-        self.plotter.enable_point_picking(
-            callback=on_area_pick,
-            show_message="",
-            color="#00ff00",
-            point_size=12,
-            use_picker=True
-        )
+            if on_vertex_added:
+                on_vertex_added(x, y, z)
+
+        style = iren.GetInteractorStyle()
+        self._area_obs_press   = style.AddObserver("LeftButtonPressEvent",   _on_press)
+        self._area_obs_release = style.AddObserver("LeftButtonReleaseEvent", _on_release)
+        self._area_style_ref   = style
+
         logger.info("Herramienta de área lista. Haz clic para añadir vértices.")
 
-    def _compute_polygon_area(self, points) -> float:
-        """
-        Calcula el área 2D proyectada en XY usando la fórmula de Shoelace (Gauss).
-        Para nubes de puntos en coordenadas reales (metros), el resultado está en m².
-        """
-        pts = np.array(points)
-        x, y = pts[:, 0], pts[:, 1]
+    def draw_closing_line(self):
+        """Añade la línea de cierre del polígono al actor de líneas existente."""
+        if not hasattr(self, "_area_vertices") or len(self._area_vertices) < 3:
+            return
+        pts = np.array(self._area_vertices, dtype=np.float32)
         n = len(pts)
-        area = 0.5 * abs(
-            sum(x[i] * y[(i + 1) % n] - x[(i + 1) % n] * y[i] for i in range(n))
+        # Líneas: 0-1, 1-2, ..., (n-1)-0  (cierre)
+        cells = np.empty(n * 3, dtype=np.int_)
+        cells[0::3] = 2
+        cells[1::3] = np.arange(n)
+        cells[2::3] = np.arange(1, n + 1) % n
+        lines_pd = pv.PolyData()
+        lines_pd.points = pts
+        lines_pd.lines  = cells
+        if hasattr(self, "_area_lines_actor") and self._area_lines_actor is not None:
+            self.plotter.remove_actor(self._area_lines_actor)
+        self._area_lines_actor = self.plotter.add_mesh(
+            lines_pd, color="#000000", line_width=3, name="_area_lines",
+            reset_camera=False,
         )
-        return float(area)
+        self.plotter.render()
+
+
 
     def clear_temporary_graphics(self):
         """Limpia líneas y puntos de selección temporales."""
@@ -475,12 +613,44 @@ class Viewport3D(QWidget):
             except Exception:
                 pass
         self._temp_actors = []
-        self._area_points = []
+        # Limpiar actores del área tool
+        for attr in ("_area_markers_actor", "_area_lines_actor"):
+            actor = getattr(self, attr, None)
+            if actor is not None:
+                try:
+                    self.plotter.remove_actor(actor)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
         self.plotter.render()
 
     def disable_tools(self):
         """Deshabilita herramientas interactivas y limpia widgets."""
         self._picking_active = False
+        # Eliminar observadores VTK del area tool
+        style_ref = getattr(self, "_area_style_ref", None)
+        if style_ref is not None:
+            for obs_attr in ("_area_obs_press", "_area_obs_release"):
+                obs_id = getattr(self, obs_attr, None)
+                if obs_id is not None:
+                    try:
+                        style_ref.RemoveObserver(obs_id)
+                    except Exception:
+                        pass
+                    setattr(self, obs_attr, None)
+            self._area_style_ref = None
+        # Eliminar observadores VTK del world picker (distancia, perfil...)
+        wp_style = getattr(self, "_wp_style_ref", None)
+        if wp_style is not None:
+            for obs_attr in ("_wp_obs_press", "_wp_obs_release"):
+                obs_id = getattr(self, obs_attr, None)
+                if obs_id is not None:
+                    try:
+                        wp_style.RemoveObserver(obs_id)
+                    except Exception:
+                        pass
+                    setattr(self, obs_attr, None)
+            self._wp_style_ref = None
         self.plotter.disable_picking()
         self.clear_temporary_graphics()
         if self._measuring_widget:
@@ -490,7 +660,6 @@ class Viewport3D(QWidget):
                 pass
             self._measuring_widget = None
         self._picking_callback = None
-        self._area_points = []
         logger.info("Herramientas interactivas deshabilitadas")
 
     # ------------------------------------------------------------------

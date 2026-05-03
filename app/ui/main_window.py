@@ -53,6 +53,10 @@ class MainWindow(QMainWindow):
         saved_lang = self.preferences.get("language", "es")
         set_language(saved_lang)
 
+        # Tool dialogs (created lazily)
+        self._area_dialog = None
+        self._measurements_dialog = None
+
         # Setup UI
         self._setup_window()
         self._setup_viewport()
@@ -272,6 +276,13 @@ class MainWindow(QMainWindow):
         act_vol.triggered.connect(self._start_volume_tool)
         menu_tools.addAction(act_vol)
 
+        menu_tools.addSeparator()
+
+        act_history = QAction("Historial de medidas", self)
+        act_history.setShortcut(QKeySequence("Ctrl+H"))
+        act_history.triggered.connect(self._show_measurements_history)
+        menu_tools.addAction(act_history)
+
         # --- Ayuda ---
         menu_help = menubar.addMenu(tr("menu.help"))
         act_about = QAction(tr("dialog.about_title"), self)
@@ -350,6 +361,7 @@ class MainWindow(QMainWindow):
         self.layer_manager.layer_removed.connect(lambda _: self._update_points_display())
         self.layer_manager.layer_visibility_changed.connect(self._on_visibility_changed)
         self.layer_manager.active_layer_changed.connect(self._on_active_layer_changed)
+
 
     def _on_layer_added(self, index: int):
         self._update_points_display()
@@ -670,63 +682,161 @@ class MainWindow(QMainWindow):
 
     def _start_distance_tool(self):
         logger.info("Herramienta de distancia activada")
-        self.viewport.enable_distance_tool()
-        self._update_status("Usa los tiradores para medir distancias")
+        from app.processing.measurements import measure_3d_distance
+
+        self._dist_points = []
+
+        def on_dist_pick(x: float, y: float, z: float):
+            self._dist_points.append((x, y, z))
+
+            # Marcador en el punto recien seleccionado
+            self.viewport.add_measurement_marker((x, y, z))
+
+            if len(self._dist_points) == 1:
+                self._update_status(
+                    f"Punto A: ({x:.2f}, {y:.2f}, {z:.2f})  -  Selecciona el punto B"
+                )
+
+            elif len(self._dist_points) == 2:
+                p1, p2 = self._dist_points
+
+                # Linea de medicion en estilo area (negra, delgada)
+                self.viewport.add_measurement_line(p1, p2)
+
+                res = measure_3d_distance(p1, p2)
+
+                self._update_status(
+                    f"Distancia: {res['distance_3d']:.3f} m  |  "
+                    f"2D: {res['distance_2d']:.3f} m  |  "
+                    f"dZ: {res['dz']:.3f} m  |  "
+                    f"Pendiente: {res['slope_degrees']:.1f} deg  -  Pulsa Esc para limpiar"
+                )
+
+                self._record_measurement("distancia", {
+                    **res,
+                    "ax": p1[0], "ay": p1[1], "az": p1[2],
+                    "bx": p2[0], "by": p2[1], "bz": p2[2],
+                })
+
+                logger.info(
+                    f"Distancia: 3D={res['distance_3d']:.3f}m  "
+                    f"2D={res['distance_2d']:.3f}m  dZ={res['dz']:.3f}m"
+                )
+
+                self._dist_points = []
+
+        self.viewport.enable_world_picking(on_dist_pick)
+        self._update_status("Selecciona el punto A en el visor")
+
 
     def _start_area_tool(self):
+        """Abre el modal de área y activa la herramienta en el viewport."""
         logger.info("Herramienta de área activada")
-        self._area_points = []
-        self.viewport.enable_point_picking(self._on_area_point_picked)
-        self._update_status("Selecciona al menos 3 puntos para cerrar el área")
+        from app.ui.viewport.area_tool import AreaToolDialog
 
-    def _on_area_point_picked(self, x, y, z):
-        logger.info(f"Área: punto recibido ({x:.2f}, {y:.2f}, {z:.2f})")
-        new_point = [x, y, z]
-        if self._area_points:
-            last_point = self._area_points[-1]
-            self.viewport.add_temporary_line(last_point, new_point, color="#ffff00")
-            
-        self._area_points.append(new_point)
-        
-        if len(self._area_points) >= 3:
-            # Línea de cierre provisional
-            self.viewport.add_temporary_line(self._area_points[-1], self._area_points[0], color="#ffff00")
-            
-            # Cálculo Shoelace
-            pts = np.array(self._area_points)
-            area = 0.5 * np.abs(np.dot(pts[:,0], np.roll(pts[:,1], 1)) - np.dot(pts[:,1], np.roll(pts[:,0], 1)))
-            
-            logger.info(f"Área actual: {area:.2f} m2")
-            self._update_status(f"Puntos: {len(self._area_points)} | Área: {area:.2f} m². Esc para limpiar.")
-        else:
-            self._update_status(f"Seleccionado punto {len(self._area_points)}. Mínimo 3 para área.")
+        # Crear el diálogo la primera vez (o si fue destruido)
+        if self._area_dialog is None:
+            self._area_dialog = AreaToolDialog(self)
+            self._area_dialog.calculate_requested.connect(self._calculate_area)
+            self._area_dialog.clear_requested.connect(self._on_area_clear)
+
+        self._area_dialog.reset()
+        self._area_dialog.show()
+        self._area_dialog.raise_()
+        self._area_dialog.activateWindow()
+
+        # Activar picking en el viewport
+        self.viewport.enable_area_tool(on_vertex_added=self._on_area_vertex_added)
+        self._update_status("Herramienta de área activa — haz clic en el terreno")
+
+    def _on_area_vertex_added(self, x: float, y: float, z: float):
+        """Recibe cada nuevo vértice del viewport y lo pasa al modal."""
+        if self._area_dialog is not None:
+            self._area_dialog.add_vertex(x, y, z)
+            n = len(self._area_dialog.get_vertices())
+            self._update_status(
+                f"Área: {n} vértice{'s' if n != 1 else ''} "
+                f"— pulsa Calcular o Enter en el panel"
+            )
+
+    def _on_area_clear(self):
+        """Limpia el viewport cuando el modal pide reiniciar."""
+        self.viewport.disable_tools()
+        # Re-activar la herramienta para seguir añadiendo vértices si el diálogo sigue abierto
+        if self._area_dialog is not None and self._area_dialog.isVisible():
+            self.viewport.enable_area_tool(on_vertex_added=self._on_area_vertex_added)
+        self._update_status(tr("status.ready"))
 
     def _calculate_area(self):
-        from app.processing.measurements import measure_area
-        entry = self.layer_manager.active_layer
-        
-        # Necesitamos un raster para área superficial, si no hay usamos el primero disponible
-        raster_entry = entry if (entry and entry.is_raster) else None
-        if not raster_entry:
-            rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
-            if rasters:
-                raster_entry = rasters[0]
-        
-        polygon = np.array(self._area_points)
-        
-        if raster_entry:
-            res = measure_area(raster_entry.layer, polygon)
-            msg = (f"Área planimétrica: {res['planimetric_area_m2']:.2f} m²\n"
-                   f"Área superficial: {res['surface_area_m2']:.2f} m²\n"
-                   f"Hectáreas: {res['planimetric_area_ha']:.4f} ha")
+        """Calcula el área del polígono y muestra los resultados en el modal."""
+        if self._area_dialog is None:
+            return
+
+        vertices = self._area_dialog.get_vertices()
+        if len(vertices) < 3:
+            return
+
+        # Dibujar línea de cierre visual en el viewport
+        self.viewport.draw_closing_line()
+
+        # Calcular perímetro 2D
+        pts = np.array(vertices)
+        diffs = np.diff(pts[:, :2], axis=0)
+        seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
+        closing = np.sqrt(
+            (pts[-1, 0] - pts[0, 0]) ** 2 + (pts[-1, 1] - pts[0, 1]) ** 2
+        )
+        perimeter = float(seg_lengths.sum() + closing)
+
+        # Buscar MDT (primer raster disponible)
+        rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
+        used_raster = bool(rasters)
+
+        if used_raster:
+            from app.processing.measurements import measure_area
+            try:
+                polygon_xy = pts[:, :2]  # (N, 2)
+                res = measure_area(rasters[0].layer, polygon_xy)
+                plan_m2   = res["planimetric_area_m2"]
+                surf_m2   = res["surface_area_m2"]
+            except Exception as e:
+                logger.error(f"Error calculando área con MDT: {e}")
+                used_raster = False
+                plan_m2 = self._shoelace_area(pts[:, :2])
+                surf_m2 = plan_m2
         else:
-            # Solo planimétrica simple (Shoelace formula)
-            x = polygon[:, 0]
-            y = polygon[:, 1]
-            area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-            msg = f"Área planimétrica: {area:.2f} m²\n(No hay capa raster para calcular área superficial)"
-            
-        QMessageBox.information(self, "Resultado de Área", msg)
+            # Sin MDT: Shoelace sobre XY
+            plan_m2 = self._shoelace_area(pts[:, :2])
+            surf_m2 = plan_m2
+
+        self._area_dialog.show_results(
+            plan_m2=plan_m2,
+            surf_m2=surf_m2,
+            perimeter_m=perimeter,
+            used_raster=used_raster,
+        )
+        self._update_status(
+            f"Área calculada: {plan_m2:,.2f} m² | Perímetro: {perimeter:,.2f} m"
+        )
+        logger.info(
+            f"Área: plan={plan_m2:.2f}m² surf={surf_m2:.2f}m² "
+            f"per={perimeter:.2f}m verts={len(vertices)}"
+        )
+
+        # ── Guardar en historial ──────────────────────────────────────
+        self._record_measurement("area", {
+            "planimetric_area_m2": plan_m2,
+            "surface_area_m2":     surf_m2,
+            "perimeter_m":         perimeter,
+            "used_raster":         used_raster,
+            "num_vertices":        len(vertices),
+        })
+
+    @staticmethod
+    def _shoelace_area(pts: np.ndarray) -> float:
+        """Fórmula de Shoelace para área planimétrica (sin MDT)."""
+        x, y = pts[:, 0], pts[:, 1]
+        return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2.0)
 
     def _start_volume_tool(self):
         logger.info("Herramienta de volumen activada")
@@ -780,8 +890,33 @@ class MainWindow(QMainWindow):
                    f"Neto: {res['net_volume_m3']:.2f} m³\n"
                    f"Área base: {res['area_m2']:.2f} m²")
             QMessageBox.information(self, "Resultado de Volumen", msg)
+
+            # ── Guardar en historial ──────────────────────────────────
+            self._record_measurement("volumen", {
+                **res,
+                "reference_z": self._volume_ref_z,
+            })
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+
+    # --- Measurements history ---
+    def _get_measurements_dialog(self):
+        """Crea el diálogo de historial la primera vez (lazy)."""
+        if self._measurements_dialog is None:
+            from app.ui.dialogs.measurements_history_dialog import MeasurementsHistoryDialog
+            self._measurements_dialog = MeasurementsHistoryDialog(self)
+        return self._measurements_dialog
+
+    def _show_measurements_history(self):
+        """Abre el modal de historial de medidas."""
+        dlg = self._get_measurements_dialog()
+        dlg.show_and_raise()
+
+    def _record_measurement(self, mtype: str, data: dict):
+        """Guarda una medida en el historial (no abre el modal)."""
+        dlg = self._get_measurements_dialog()
+        dlg.add_measurement(mtype, data)
+        logger.info(f"Medida '{mtype}' registrada en el historial.")
 
     # --- Export ---
     def _show_export_dialog(self):

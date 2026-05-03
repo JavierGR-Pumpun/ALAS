@@ -20,7 +20,18 @@ def main():
     # Importar Qt antes que nada
     from PyQt6.QtWidgets import QApplication, QSplashScreen
     from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter
-    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtCore import Qt, QTimer, QCoreApplication
+
+    # --- Performance and Graphics fixes for Windows ---
+    if sys.platform == "win32":
+        # Forzar el uso de OpenGL de escritorio en lugar de ANGLE (Direct3D)
+        # Esto es vital para que VTK/PyVista funcione con aceleración real en Windows
+        QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseDesktopOpenGL)
+        QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+        
+        # Variables de entorno adicionales para asegurar el backend de OpenGL
+        os.environ["QSG_RHI_BACKEND"] = "opengl"
+        os.environ["PYVISTA_OFF_SCREEN"] = "false"
 
     app = QApplication(sys.argv)
     app.setApplicationName("ALAS")

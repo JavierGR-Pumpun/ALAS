@@ -33,6 +33,8 @@ dependencies:
   - reportlab
   - pip
   - pip:
-    - PyQt6
-    - PyQt6-WebEngine
-    - pysheds
+      - PyQt6==6.7.1
+      - PyQt6-Qt6==6.7.1
+      - PyQt6-WebEngine==6.7.0
+      - PyQt6-WebEngine-Qt6==6.7.0
+      - pysheds

@@ -59,7 +59,7 @@ class StatisticsPanel(QWidget):
                 w.deleteLater()
 
     def _show_pc_stats(self, pc: PointCloudData):
-        title = QLabel(f"📊 {pc.name}")
+        title = QLabel(f"{pc.name}")
         title.setObjectName("subheading")
         self._layout.addWidget(title)
 
@@ -89,7 +89,7 @@ class StatisticsPanel(QWidget):
         self._layout.addStretch()
 
     def _show_raster_stats(self, rl: RasterLayer):
-        title = QLabel(f"📊 {rl.name}")
+        title = QLabel(f"{rl.name}")
         title.setObjectName("subheading")
         self._layout.addWidget(title)
 

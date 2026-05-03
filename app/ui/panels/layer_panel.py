@@ -66,7 +66,7 @@ class LayerPanel(QWidget):
 
         item = QTreeWidgetItem()
         item.setText(0, entry.name)
-        item.setText(1, "☁" if entry.is_point_cloud else "▦")
+        item.setText(1, "PC" if entry.is_point_cloud else "RL")
         item.setCheckState(0, Qt.CheckState.Checked if entry.visible else Qt.CheckState.Unchecked)
         item.setData(0, Qt.ItemDataRole.UserRole, index)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
