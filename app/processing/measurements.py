@@ -232,34 +232,3 @@ def calculate_volume(raster: RasterLayer, reference_z: float,
     logger.info(f"Corte: {cut:.1f}m³ | Relleno: {fill:.1f}m³ | Neto: {net:.1f}m³")
     return result
 
-
-def calculate_volume_between_surfaces(surface1: RasterLayer,
-                                       surface2: RasterLayer) -> dict:
-    """
-    Calcula el volumen entre dos superficies (excavación/relleno).
-    """
-    logger.info("Calculando volumen entre superficies...")
-
-    d1 = surface1.get_band(0).copy()
-    d2 = surface2.get_band(0).copy()
-
-    # Asegurar mismas dimensiones
-    min_r = min(d1.shape[0], d2.shape[0])
-    min_c = min(d1.shape[1], d2.shape[1])
-    d1 = d1[:min_r, :min_c]
-    d2 = d2[:min_r, :min_c]
-
-    valid = (d1 != surface1.nodata) & (d2 != surface2.nodata)
-
-    res = surface1.resolution
-    cell_area = res[0] * res[1] if res else 1.0
-
-    diff = d2[valid] - d1[valid]
-    cut = np.sum(diff[diff > 0]) * cell_area
-    fill = np.sum(np.abs(diff[diff < 0])) * cell_area
-
-    return {
-        "cut_volume_m3": float(cut),
-        "fill_volume_m3": float(fill),
-        "net_volume_m3": float(cut - fill),
-    }

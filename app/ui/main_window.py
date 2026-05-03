@@ -571,9 +571,10 @@ class MainWindow(QMainWindow):
             return
         dlg = DEMDialog(entry.layer, self)
         if dlg.exec():
-            raster = dlg.get_result()
-            if raster is not None:
-                self.layer_manager.add_layer(raster)
+            rasters = dlg.get_results()
+            if rasters:
+                for raster in rasters:
+                    self.layer_manager.add_layer(raster)
                 self._update_status(tr("success.dem_generated"))
 
     def _show_geomorphology_dialog(self):
@@ -839,65 +840,84 @@ class MainWindow(QMainWindow):
         return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2.0)
 
     def _start_volume_tool(self):
+        """Abre el modal de volumen y activa la herramienta en el viewport."""
         logger.info("Herramienta de volumen activada")
-        from PyQt6.QtWidgets import QInputDialog
-        z_ref, ok = QInputDialog.getDouble(self, "Volumen", "Nivel de referencia (Z):", 0, -10000, 10000, 2)
-        if ok:
-            self._volume_ref_z = z_ref
-            self._area_points = [] # Reutilizamos para el polígono
-            self.viewport.enable_point_picking(self._on_volume_point_picked)
-            self._update_status(f"Selecciona polígono para volumen (Z ref={z_ref})")
+        from app.ui.viewport.volume_tool import VolumeToolDialog
 
-    def _on_volume_point_picked(self, x, y, z):
-        new_point = [x, y, z]
-        if self._area_points:
-            last_point = self._area_points[-1]
-            self.viewport.add_temporary_line(last_point, new_point, color="#ffff00")
-            
-        self._area_points.append(new_point)
-        if len(self._area_points) >= 3:
-            # Línea de cierre
-            p_first = self._area_points[0]
-            p_last = self._area_points[-1]
-            self.viewport.add_temporary_line(p_last, p_first, color="#ffff00")
-            
-            msg = f"Puntos: {len(self._area_points)}\n¿Calcular volumen?"
-            reply = QMessageBox.question(self, "Cálculo de Volumen", msg,
-                                       QMessageBox.StandardButton.Yes | 
-                                       QMessageBox.StandardButton.No |
-                                       QMessageBox.StandardButton.Cancel)
-            if reply == QMessageBox.StandardButton.Yes:
-                self._calculate_volume()
-                self._update_status("Volumen calculado. Pulsa Esc para limpiar.")
-            elif reply == QMessageBox.StandardButton.Cancel:
-                self.viewport.disable_tools()
-                self._update_status(tr("status.ready"))
+        if not hasattr(self, "_volume_dialog") or self._volume_dialog is None:
+            self._volume_dialog = VolumeToolDialog(self)
+            self._volume_dialog.calculate_requested.connect(self._calculate_volume)
+            self._volume_dialog.clear_requested.connect(self._on_volume_clear)
+
+        self._volume_dialog.reset()
+        self._volume_dialog.show()
+        self._volume_dialog.raise_()
+        self._volume_dialog.activateWindow()
+
+        # Activar picking en el viewport (reutiliza el picking de área)
+        self.viewport.enable_area_tool(on_vertex_added=self._on_volume_vertex_added)
+        self._update_status("Herramienta de volumen activa — haz clic en el terreno")
+
+    def _on_volume_vertex_added(self, x: float, y: float, z: float):
+        """Recibe cada nuevo vértice del viewport y lo pasa al modal."""
+        if hasattr(self, "_volume_dialog") and self._volume_dialog is not None:
+            self._volume_dialog.add_vertex(x, y, z)
+            n = len(self._volume_dialog.get_vertices())
+            self._update_status(
+                f"Volumen: {n} vértice{'s' if n != 1 else ''} "
+                f"— define Z y pulsa Calcular"
+            )
+
+    def _on_volume_clear(self):
+        """Limpia el viewport cuando el modal pide reiniciar."""
+        self.viewport.disable_tools()
+        if hasattr(self, "_volume_dialog") and self._volume_dialog is not None and self._volume_dialog.isVisible():
+            self.viewport.enable_area_tool(on_vertex_added=self._on_volume_vertex_added)
+        self._update_status(tr("status.ready"))
 
     def _calculate_volume(self):
-        from app.processing.measurements import calculate_volume
+        """Calcula el volumen del polígono y muestra los resultados en el modal."""
+        if not hasattr(self, "_volume_dialog") or self._volume_dialog is None:
+            return
+
+        vertices = self._volume_dialog.get_vertices()
+        if len(vertices) < 3:
+            return
+
+        z_ref = self._volume_dialog.get_reference_z()
+
+        # Dibujar línea de cierre visual en el viewport
+        self.viewport.draw_closing_line()
+
+        # Buscar MDT (primer raster disponible)
         rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
         if not rasters:
-            QMessageBox.warning(self, "Error", "Se requiere una capa Raster (MDT) para calcular volúmenes.")
+            self._volume_dialog.show_error("Se requiere una capa Raster (MDT) cargada.")
             return
-            
-        raster_entry = rasters[0] # Usar el primer raster (MDT)
-        polygon = np.array(self._area_points)
-        
-        try:
-            res = calculate_volume(raster_entry.layer, self._volume_ref_z, polygon)
-            msg = (f"Corte: {res['cut_volume_m3']:.2f} m³\n"
-                   f"Relleno: {res['fill_volume_m3']:.2f} m³\n"
-                   f"Neto: {res['net_volume_m3']:.2f} m³\n"
-                   f"Área base: {res['area_m2']:.2f} m²")
-            QMessageBox.information(self, "Resultado de Volumen", msg)
 
-            # ── Guardar en historial ──────────────────────────────────
+        from app.processing.measurements import calculate_volume
+        raster_entry = rasters[0]
+        polygon = np.array(vertices)
+        polygon_xy = polygon[:, :2]  # Extract only X and Y coordinates (N, 2)
+
+        try:
+            res = calculate_volume(raster_entry.layer, z_ref, polygon_xy)
+            cut = res['cut_volume_m3']
+            fill = res['fill_volume_m3']
+            net = res['net_volume_m3']
+            area = res['area_m2']
+
+            self._volume_dialog.show_results(cut, fill, net, area)
+            self._update_status(f"Volumen calculado: Neto {net:,.2f} m³ (Z ref={z_ref:,.2f})")
+
+            # Guardar en historial
             self._record_measurement("volumen", {
                 **res,
-                "reference_z": self._volume_ref_z,
+                "reference_z": z_ref,
             })
         except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
+            logger.error(f"Error calculando volumen: {e}")
+            self._volume_dialog.show_error(f"Error: {str(e)}")
 
     # --- Measurements history ---
     def _get_measurements_dialog(self):

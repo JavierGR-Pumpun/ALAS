@@ -46,6 +46,7 @@ class DEMDialog(QDialog):
         self._type_combo.addItem(tr("dem.dtm"), "dtm")
         self._type_combo.addItem(tr("dem.dsm"), "dsm")
         self._type_combo.addItem(tr("dem.chm"), "chm")
+        self._type_combo.addItem("MDT, MDS, CHM", "all")
         form_type.addRow("Modelo", self._type_combo)
         layout.addWidget(grp_type)
 
@@ -103,29 +104,43 @@ class DEMDialog(QDialog):
         power = self._power.value()
 
         try:
+            self._results = []
             if dem_type == "dtm":
-                self._result = generate_dtm(self.pc, resolution, method, power)
+                self._results.append(generate_dtm(self.pc, resolution, method, power))
             elif dem_type == "dsm":
-                self._result = generate_dsm(self.pc, resolution, method)
+                self._results.append(generate_dsm(self.pc, resolution, method))
             elif dem_type == "chm":
-                # Generar ambos y calcular diferencia
                 dtm = generate_dtm(self.pc, resolution, method, power)
                 dsm = generate_dsm(self.pc, resolution, method)
-                self._result = generate_chm(dtm, dsm)
+                self._results.append(generate_chm(dtm, dsm))
+            elif dem_type == "all":
+                dtm = generate_dtm(self.pc, resolution, method, power)
+                dsm = generate_dsm(self.pc, resolution, method)
+                chm = generate_chm(dtm, dsm)
+                self._results.extend([dtm, dsm, chm])
 
             # Auto-export
-            if self._auto_export.isChecked() and self._result:
-                path, _ = QFileDialog.getSaveFileName(
-                    self, "Guardar GeoTIFF", f"{self._result.name}.tif",
-                    "GeoTIFF (*.tif)"
-                )
-                if path:
-                    self._result.to_geotiff(path)
+            if self._auto_export.isChecked() and self._results:
+                if len(self._results) == 1:
+                    path, _ = QFileDialog.getSaveFileName(
+                        self, "Guardar GeoTIFF", f"{self._results[0].name}.tif",
+                        "GeoTIFF (*.tif)"
+                    )
+                    if path:
+                        self._results[0].to_geotiff(path)
+                else:
+                    dir_path = QFileDialog.getExistingDirectory(
+                        self, "Seleccionar carpeta para guardar GeoTIFFs"
+                    )
+                    if dir_path:
+                        import os
+                        for res in self._results:
+                            res.to_geotiff(os.path.join(dir_path, f"{res.name}.tif"))
 
             self.accept()
 
         except Exception as e:
             QMessageBox.critical(self, tr("error.processing_failed"), str(e))
 
-    def get_result(self) -> RasterLayer:
-        return self._result
+    def get_results(self) -> list[RasterLayer]:
+        return getattr(self, '_results', [])
