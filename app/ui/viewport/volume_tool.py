@@ -30,6 +30,7 @@ class VolumeToolDialog(QDialog):
 
     calculate_requested = pyqtSignal()
     clear_requested     = pyqtSignal()
+    clear_volume_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Tool)
@@ -89,23 +90,32 @@ class VolumeToolDialog(QDialog):
         layout.addWidget(grp_verts)
 
         # --- Botones de acción ---
-        btn_row = QHBoxLayout()
+        btn_row_1 = QHBoxLayout()
 
         self._btn_calc = QPushButton("Calcular")
         self._btn_calc.setObjectName("primary")
         self._btn_calc.setEnabled(False)
         self._btn_calc.clicked.connect(self._on_calculate_clicked)
-        btn_row.addWidget(self._btn_calc)
+        btn_row_1.addWidget(self._btn_calc)
 
         btn_undo = QPushButton("Deshacer")
         btn_undo.clicked.connect(self._on_undo)
-        btn_row.addWidget(btn_undo)
+        btn_row_1.addWidget(btn_undo)
+        
+        layout.addLayout(btn_row_1)
 
-        btn_clear = QPushButton("Limpiar")
+        btn_row_2 = QHBoxLayout()
+
+        btn_clear_vol = QPushButton("Borrar volumen")
+        btn_clear_vol.setToolTip("Borrar solo la representación 3D del volumen coloreado")
+        btn_clear_vol.clicked.connect(self._on_clear_volume)
+        btn_row_2.addWidget(btn_clear_vol)
+
+        btn_clear = QPushButton("Limpiar todo")
         btn_clear.clicked.connect(self._on_clear)
-        btn_row.addWidget(btn_clear)
+        btn_row_2.addWidget(btn_clear)
 
-        layout.addLayout(btn_row)
+        layout.addLayout(btn_row_2)
 
         # --- Separador ---
         sep = QFrame()
@@ -220,6 +230,9 @@ class VolumeToolDialog(QDialog):
         self._count_label.setText(f"{n} vértice{'s' if n != 1 else ''}")
         self._btn_calc.setEnabled(n >= 3)
         self.clear_requested.emit()
+
+    def _on_clear_volume(self):
+        self.clear_volume_requested.emit()
 
     def _on_clear(self):
         self.reset()

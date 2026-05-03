@@ -36,19 +36,19 @@ class AnalysisDialog(QDialog):
 
         # Geomorphology tab
         self._geomorph_tab = self._build_geomorphology_tab()
-        self._tabs.addTab(self._geomorph_tab, "🏔 Geomorfología")
+        self._tabs.addTab(self._geomorph_tab, "Geomorfología")
 
         # Hydrology tab
         self._hydro_tab = self._build_hydrology_tab()
-        self._tabs.addTab(self._hydro_tab, "💧 Hidrología")
+        self._tabs.addTab(self._hydro_tab, "Hidrología")
 
         # Vegetation tab
         self._veg_tab = self._build_vegetation_tab()
-        self._tabs.addTab(self._veg_tab, "🌲 Vegetación")
+        self._tabs.addTab(self._veg_tab, "Vegetación")
 
         # Multitemporal tab
         self._multi_tab = self._build_multitemporal_tab()
-        self._tabs.addTab(self._multi_tab, "📅 Multitemporal")
+        self._tabs.addTab(self._multi_tab, "Multitemporal")
 
         layout.addWidget(self._tabs)
 

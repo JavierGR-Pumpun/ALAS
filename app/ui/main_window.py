@@ -848,6 +848,7 @@ class MainWindow(QMainWindow):
             self._volume_dialog = VolumeToolDialog(self)
             self._volume_dialog.calculate_requested.connect(self._calculate_volume)
             self._volume_dialog.clear_requested.connect(self._on_volume_clear)
+            self._volume_dialog.clear_volume_requested.connect(self._on_volume_clear_only_solid)
 
         self._volume_dialog.reset()
         self._volume_dialog.show()
@@ -867,6 +868,11 @@ class MainWindow(QMainWindow):
                 f"Volumen: {n} vértice{'s' if n != 1 else ''} "
                 f"— define Z y pulsa Calcular"
             )
+
+    def _on_volume_clear_only_solid(self):
+        """Limpia unicamente el volumen 3D (para poder probar otras cotas sin rehacer polígono)."""
+        self.viewport.clear_volume_graphics()
+        self._update_status("Volumen 3D ocultado. Puedes volver a calcular.")
 
     def _on_volume_clear(self):
         """Limpia el viewport cuando el modal pide reiniciar."""
@@ -910,9 +916,21 @@ class MainWindow(QMainWindow):
             self._volume_dialog.show_results(cut, fill, net, area)
             self._update_status(f"Volumen calculado: Neto {net:,.2f} m³ (Z ref={z_ref:,.2f})")
 
+            # Dibujar la region 3D en el viewport
+            if 'grid_x' in res:
+                self.viewport.display_volume_region(
+                    res['grid_x'], 
+                    res['grid_y'],
+                    res['grid_z'],
+                    z_ref
+                )
+
+            # Remover datos pesados antes de guardar en historial
+            hist_data = {k: v for k, v in res.items() if k not in ('grid_x', 'grid_y', 'grid_z')}
+
             # Guardar en historial
             self._record_measurement("volumen", {
-                **res,
+                **hist_data,
                 "reference_z": z_ref,
             })
         except Exception as e:

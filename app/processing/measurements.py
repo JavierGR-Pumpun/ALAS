@@ -204,6 +204,8 @@ def calculate_volume(raster: RasterLayer, reference_z: float,
     if polygon is not None:
         from matplotlib.path import Path as MplPath
         bounds = raster.bounds
+        if bounds is None:
+            raise ValueError("Raster sin extensión.")
         xmin, ymin, xmax, ymax = bounds
         rows, cols = data.shape
         xs = np.linspace(xmin, xmax, cols)
@@ -213,6 +215,14 @@ def calculate_volume(raster: RasterLayer, reference_z: float,
         path = MplPath(polygon)
         mask = path.contains_points(points).reshape(rows, cols)
     else:
+        bounds = raster.bounds
+        if bounds is None:
+            raise ValueError("Raster sin extensión.")
+        xmin, ymin, xmax, ymax = bounds
+        rows, cols = data.shape
+        xs = np.linspace(xmin, xmax, cols)
+        ys = np.linspace(ymax, ymin, rows)
+        xx, yy = np.meshgrid(xs, ys)
         mask = data != raster.nodata
 
     valid = mask & (data != raster.nodata)
@@ -222,11 +232,18 @@ def calculate_volume(raster: RasterLayer, reference_z: float,
     fill = np.sum(np.abs(diff[diff < 0])) * cell_area
     net = cut - fill
 
+    # Prepare 2D grid for 3D Volume solid rendering
+    zz = data.astype(np.float32).copy()
+    zz[~valid] = np.nan
+
     result = {
         "cut_volume_m3": float(cut),
         "fill_volume_m3": float(fill),
         "net_volume_m3": float(net),
         "area_m2": float(np.sum(valid) * cell_area),
+        "grid_x": xx,
+        "grid_y": yy,
+        "grid_z": zz,
     }
 
     logger.info(f"Corte: {cut:.1f}m³ | Relleno: {fill:.1f}m³ | Neto: {net:.1f}m³")

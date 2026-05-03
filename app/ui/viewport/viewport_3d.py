@@ -601,9 +601,76 @@ class Viewport3D(QWidget):
             lines_pd, color="#000000", line_width=3, name="_area_lines",
             reset_camera=False,
         )
+    def clear_volume_graphics(self):
+        """Limpia únicamente el sólido 3D del volumen coloreado."""
+        if hasattr(self, "_volume_solid_actor") and self._volume_solid_actor is not None:
+            try:
+                self.plotter.remove_actor(self._volume_solid_actor)
+                if self._volume_solid_actor in self._temp_actors:
+                    self._temp_actors.remove(self._volume_solid_actor)
+            except Exception:
+                pass
+            self._volume_solid_actor = None
         self.plotter.render()
 
+    def display_volume_region(self, grid_x: np.ndarray, grid_y: np.ndarray, grid_z: np.ndarray, reference_z: float):
+        """Dibuja el bloque 3D sólido correspondiente al volumen calculado."""
+        self.clear_volume_graphics()
+        try:
+            # 1. Preparar capas superior e inferior
+            # Rellenar NaNs temporalmente para construir el grid estructurado
+            z_terrain = grid_z.copy()
+            valid_mask = ~np.isnan(z_terrain)
+            
+            if not np.any(valid_mask):
+                return
+                
+            z_terrain[~valid_mask] = reference_z
+            z_ref_layer = np.full_like(z_terrain, reference_z)
 
+            # 2. Crear las matrices 3D apilando las dos capas (terreno y referencia)
+            x3d = np.dstack((grid_x, grid_x))
+            y3d = np.dstack((grid_y, grid_y))
+            z3d = np.dstack((z_terrain, z_ref_layer))
+
+            grid = pv.StructuredGrid(x3d, y3d, z3d)
+
+            # 3. Calcular la diferencia y clasificar: Corte (1), Relleno (-1)
+            diff_2d = z_terrain - reference_z
+            diff_3d = np.dstack((diff_2d, diff_2d))
+            category_3d = np.where(diff_3d > 0, 1, -1)
+
+            # 4. Máscara de celdas válidas (solo las que estaban dentro del polígono)
+            valid_3d = np.dstack((valid_mask, valid_mask)).astype(float)
+
+            # Asignar escalares a los puntos del grid (orden Flatten Fortran para X,Y,Z de PyVista)
+            grid["Category"] = category_3d.flatten(order="F")
+            grid["Valid"] = valid_3d.flatten(order="F")
+
+            # 5. Extraer solo las celdas válidas usando un threshold
+            solid_volume = grid.threshold(0.5, scalars="Valid")
+
+            if solid_volume.n_points == 0:
+                return
+
+            from matplotlib.colors import ListedColormap
+            cmap = ListedColormap(["#3b82f6", "#ef4444"]) # Azul (Relleno), Rojo (Corte)
+
+            actor = self.plotter.add_mesh(
+                solid_volume,
+                scalars="Category",
+                cmap=cmap,
+                show_scalar_bar=False,
+                name=f"_tmp_vol_solid_{len(self._temp_actors)}",
+                opacity=0.9,
+                reset_camera=False
+            )
+            self._temp_actors.append(actor)
+            self._volume_solid_actor = actor
+        except Exception as e:
+            logger.error(f"Error generando volumen 3D sólido: {e}")
+
+        self.plotter.render()
 
     def clear_temporary_graphics(self):
         """Limpia líneas y puntos de selección temporales."""
