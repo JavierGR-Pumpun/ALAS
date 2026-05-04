@@ -235,9 +235,9 @@ class AreaToolDialog(QDialog):
         self.clear_requested.emit()
 
     def _on_close(self):
+        self.hide()
         self.reset()
         self.clear_requested.emit()
-        self.hide()
 
     # Evitar que cerrar la ventana destruya el diálogo
     def closeEvent(self, event):

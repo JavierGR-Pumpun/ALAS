@@ -239,9 +239,9 @@ class VolumeToolDialog(QDialog):
         self.clear_requested.emit()
 
     def _on_close(self):
+        self.hide()
         self.reset()
         self.clear_requested.emit()
-        self.hide()
 
     def closeEvent(self, event):
         self._on_close()

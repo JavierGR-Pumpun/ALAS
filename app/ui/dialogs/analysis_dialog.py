@@ -7,8 +7,9 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
     QFormLayout, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox,
     QPushButton, QLabel, QMessageBox, QFileDialog,
-    QWidget
+    QWidget, QScrollArea, QMainWindow
 )
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 
 from app.core.layer_manager import LayerManager
@@ -17,6 +18,90 @@ from app.i18n import tr
 from app.logger import get_logger
 
 logger = get_logger("ui.analysis_dialog")
+
+
+class HydroResultsWindow(QMainWindow):
+    """Ventana para mostrar resultados hidrológicos como imágenes con leyendas."""
+
+    def __init__(self, results: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Resultados Hidrológicos")
+        self.setMinimumSize(1000, 800)
+        self._setup_ui(results)
+
+    def _setup_ui(self, results: dict):
+        from app.rendering.hydro_renderer import HydroRenderer, array_to_qimage
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        for layer_type, raster_layer in results.items():
+            try:
+                renderer = HydroRenderer(raster_layer, layer_type)
+                rgba = renderer.render()
+                qimage = array_to_qimage(rgba)
+                pixmap = QPixmap.fromImage(qimage)
+                pixmap = pixmap.scaledToWidth(800, Qt.TransformationMode.SmoothTransformation)
+
+                grp = QGroupBox(f"Resultado: {layer_type}")
+                grp_layout = QVBoxLayout(grp)
+                
+                # Imagen
+                lbl_img = QLabel()
+                lbl_img.setPixmap(pixmap)
+                lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                grp_layout.addWidget(lbl_img)
+
+                # Leyenda según tipo
+                legend_text = self._get_legend_text(layer_type)
+                lbl_legend = QLabel(legend_text)
+                lbl_legend.setStyleSheet("color: #999; font-size: 11px; margin-top: 10px;")
+                lbl_legend.setWordWrap(True)
+                grp_layout.addWidget(lbl_legend)
+                
+                layout.addWidget(grp)
+
+            except Exception as e:
+                logger.error(f"Error renderizando {layer_type}: {e}")
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        self.setCentralWidget(scroll)
+
+    @staticmethod
+    def _get_legend_text(layer_type: str) -> str:
+        """Devuelve el texto de leyenda según el tipo de análisis."""
+        legends = {
+            "flow_direction": (
+                "Dirección de Flujo (D8):\n"
+                "• Azul (1) = Este | Naranja (2) = Sureste | Verde (4) = Sur | Rojo (8) = Suroeste\n"
+                "• Morado (16) = Oeste | Marrón (32) = Noroeste | Rosa (64) = Norte | Gris (128) = Noreste"
+            ),
+            "flow_accumulation": (
+                "Acumulación de Flujo:\n"
+                "• Blanco (bajo) → Azul Claro → Azul Marino (alto)\n"
+                "• Valores en celdas acumuladas | Células con valor < 1 → Transparentes"
+            ),
+            "ponding": (
+                "Zonas de Encharcamiento:\n"
+                "• Tierra (bajo) → Verde → Azul → Oscuro (alto)\n"
+                "• Células con profundidad = 0 → Transparentes\n"
+                "• Valores en metros de profundidad"
+            ),
+            "watershed": (
+                "Delimitación de Cuenca:\n"
+                "• Azul Claro (opacidad moderada) = Área de cuenca\n"
+                "• Transparente = Fuera de la cuenca"
+            ),
+            "conditioned_dem": (
+                "MDT Acondicionado:\n"
+                "• Escala de Terreno (tierra → verde → azul)\n"
+                "• Representa elevación rellenada y acondicionada para hidrología"
+            )
+        }
+        return legends.get(layer_type, "Sin información de leyenda disponible")
 
 
 class AnalysisDialog(QDialog):
@@ -214,13 +299,29 @@ class AnalysisDialog(QDialog):
         form_p.addRow("Umbral red drenaje", self._drainage_threshold)
         layout.addWidget(grp_params)
 
+        # Botones
+        btn_layout = QHBoxLayout()
         btn_run = QPushButton("▶ Ejecutar análisis hidrológico")
         btn_run.setObjectName("primary")
         btn_run.clicked.connect(self._run_hydrology)
-        layout.addWidget(btn_run)
+        btn_layout.addWidget(btn_run)
+
+        self._btn_view_results = QPushButton("Ver resultados")
+        self._btn_view_results.setEnabled(False)
+        self._btn_view_results.clicked.connect(self._show_hydro_results)
+        btn_layout.addWidget(self._btn_view_results)
+
+        layout.addLayout(btn_layout)
 
         layout.addStretch()
         return tab
+
+    def _show_hydro_results(self):
+        """Muestra la ventana con resultados hidrológicos."""
+        if hasattr(self, "_hydro_results") and self._hydro_results:
+            results_window = HydroResultsWindow(self._hydro_results, None)
+            self._results_window = results_window
+            results_window.show()
 
     def _run_hydrology(self):
         idx = self._hydro_raster.currentData()
@@ -237,23 +338,31 @@ class AnalysisDialog(QDialog):
                 flow_direction, flow_accumulation, detect_ponding_zones
             )
 
+            results = {}
+
             if self._chk_flow_dir.isChecked():
                 result = flow_direction(dtm)
-                self.layer_manager.add_layer(result)
+                results["flow_direction"] = result
 
             if self._chk_flow_acc.isChecked():
                 result = flow_accumulation(dtm)
-                self.layer_manager.add_layer(result)
+                results["flow_accumulation"] = result
 
             if self._chk_ponding.isChecked():
                 result = detect_ponding_zones(dtm)
-                self.layer_manager.add_layer(result)
+                results["ponding"] = result
 
-            QMessageBox.information(self, "Completado", "Análisis hidrológico completado.")
+            if results:
+                self._hydro_results = results
+                self._btn_view_results.setEnabled(True)
+                QMessageBox.information(self, "Completado", "Análisis hidrológico completado.\nPresiona 'Ver resultados' para ver las imágenes.")
+            else:
+                QMessageBox.warning(self, "Aviso", "No se seleccionó ningún análisis.")
 
         except Exception as e:
-
             QMessageBox.critical(self, "Error", str(e))
+            logger.error(f"Error en análisis hidrológico: {e}", exc_info=True)
+
 
     # ------------------------------------------------------------------
     # Vegetation Tab
@@ -323,7 +432,7 @@ class AnalysisDialog(QDialog):
 
         try:
             from app.processing.vegetation import (
-                detect_tree_tops, segment_crowns, density_map
+                detect_tree_tops, segment_crowns, build_crown_raster, density_map
             )
 
             tree_tops = None
@@ -334,14 +443,8 @@ class AnalysisDialog(QDialog):
                 logger.info(f"Detectados {len(tree_tops)} árboles")
 
             if self._chk_crown_seg.isChecked() and tree_tops is not None:
-                labels = segment_crowns(chm, tree_tops)
-                # Guardar como raster
-                crown_rl = RasterLayer.from_array(
-                    labels.astype(float), chm.bounds,
-                    epsg=chm.crs_epsg, name="Copas_segmentadas"
-                )
-                crown_rl.transform = chm.transform
-                crown_rl.crs = chm.crs
+                labels, height_map = segment_crowns(chm, tree_tops)
+                crown_rl = build_crown_raster(chm, height_map, labels)
                 self.layer_manager.add_layer(crown_rl)
 
             if self._chk_density.isChecked():
