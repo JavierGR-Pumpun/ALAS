@@ -53,8 +53,9 @@ class MainWindow(QMainWindow):
         saved_lang = self.preferences.get("language", "es")
         set_language(saved_lang)
 
-        # Tool dialogs (created lazily)
+        # Tool dialogs 
         self._area_dialog = None
+        self._distance_dialog = None
         self._measurements_dialog = None
 
         # Setup UI
@@ -288,10 +289,6 @@ class MainWindow(QMainWindow):
         act_about = QAction(tr("dialog.about_title"), self)
         act_about.triggered.connect(self._show_about)
         menu_help.addAction(act_about)
-
-    # ==================================================================
-    # Toolbar (Removed)
-    # ==================================================================
 
     # ==================================================================
     # Status Bar
@@ -682,52 +679,85 @@ class MainWindow(QMainWindow):
         self._update_status("Selecciona el punto de inicio del perfil")
 
     def _start_distance_tool(self):
+        """Abre el modal de distancia y activa la herramienta en el viewport."""
         logger.info("Herramienta de distancia activada")
-        from app.processing.measurements import measure_3d_distance
+        from app.ui.viewport.distance_tool import DistanceToolDialog
 
-        self._dist_points = []
+        # Crear el diálogo la primera vez
+        if not hasattr(self, "_distance_dialog") or self._distance_dialog is None:
+            self._distance_dialog = DistanceToolDialog(self)
+            self._distance_dialog.calculate_requested.connect(self._calculate_distance)
+            self._distance_dialog.clear_requested.connect(self._on_distance_clear)
 
-        def on_dist_pick(x: float, y: float, z: float):
-            self._dist_points.append((x, y, z))
+        self._distance_dialog.reset()
+        self._distance_dialog.show()
+        self._distance_dialog.raise_()
+        self._distance_dialog.activateWindow()
 
-            # Marcador en el punto recien seleccionado
-            self.viewport.add_measurement_marker((x, y, z))
-
-            if len(self._dist_points) == 1:
-                self._update_status(
-                    f"Punto A: ({x:.2f}, {y:.2f}, {z:.2f})  -  Selecciona el punto B"
-                )
-
-            elif len(self._dist_points) == 2:
-                p1, p2 = self._dist_points
-
-                # Linea de medicion en estilo area (negra, delgada)
-                self.viewport.add_measurement_line(p1, p2)
-
-                res = measure_3d_distance(p1, p2)
-
-                self._update_status(
-                    f"Distancia: {res['distance_3d']:.3f} m  |  "
-                    f"2D: {res['distance_2d']:.3f} m  |  "
-                    f"dZ: {res['dz']:.3f} m  |  "
-                    f"Pendiente: {res['slope_degrees']:.1f} deg  -  Pulsa Esc para limpiar"
-                )
-
-                self._record_measurement("distancia", {
-                    **res,
-                    "ax": p1[0], "ay": p1[1], "az": p1[2],
-                    "bx": p2[0], "by": p2[1], "bz": p2[2],
-                })
-
-                logger.info(
-                    f"Distancia: 3D={res['distance_3d']:.3f}m  "
-                    f"2D={res['distance_2d']:.3f}m  dZ={res['dz']:.3f}m"
-                )
-
-                self._dist_points = []
-
-        self.viewport.enable_world_picking(on_dist_pick)
+        # Activar picking en el viewport
+        self.viewport.enable_world_picking(self._on_distance_pick)
         self._update_status("Selecciona el punto A en el visor")
+
+    def _on_distance_pick(self, x: float, y: float, z: float):
+        """Recibe cada punto seleccionado y lo pasa al modal."""
+        if not hasattr(self, "_distance_dialog") or self._distance_dialog is None:
+            return
+
+        num_points = len(self._distance_dialog.get_points())
+        if num_points == 0:
+            self._distance_dialog.add_point(x, y, z, "A")
+            self.viewport.add_measurement_marker((x, y, z))
+            self._update_status("Punto A seleccionado. Selecciona el punto B")
+        elif num_points == 1:
+            self._distance_dialog.add_point(x, y, z, "B")
+            self.viewport.add_measurement_marker((x, y, z))
+            # Dibujar línea
+            points = self._distance_dialog.get_points()
+            self.viewport.add_measurement_line(points[0], points[1])
+            # El cálculo se hará automáticamente via signal
+
+    def _on_distance_clear(self):
+        """Limpia el viewport cuando el modal pide reiniciar."""
+        self.viewport.disable_tools()
+        if hasattr(self, "_distance_dialog") and self._distance_dialog is not None and self._distance_dialog.isVisible():
+            self._distance_dialog.reset()
+            self.viewport.enable_world_picking(self._on_distance_pick)
+        self._update_status(tr("status.ready"))
+
+    def _calculate_distance(self):
+        """Calcula la distancia entre los dos puntos y muestra los resultados en el modal."""
+        if not hasattr(self, "_distance_dialog") or self._distance_dialog is None:
+            return
+
+        points = self._distance_dialog.get_points()
+        if len(points) != 2:
+            return
+
+        p1, p2 = points
+        from app.processing.measurements import measure_3d_distance
+        res = measure_3d_distance(p1, p2)
+
+        self._distance_dialog.show_results(
+            res['distance_3d'], res['distance_2d'], res['dz'], res['slope_degrees']
+        )
+
+        self._update_status(
+            f"Distancia: {res['distance_3d']:.3f} m  |  "
+            f"2D: {res['distance_2d']:.3f} m  |  "
+            f"dZ: {res['dz']:.3f} m  |  "
+            f"Pendiente: {res['slope_degrees']:.1f} deg"
+        )
+
+        self._record_measurement("distancia", {
+            **res,
+            "ax": p1[0], "ay": p1[1], "az": p1[2],
+            "bx": p2[0], "by": p2[1], "bz": p2[2],
+        })
+
+        logger.info(
+            f"Distancia: 3D={res['distance_3d']:.3f}m  "
+            f"2D={res['distance_2d']:.3f}m  dZ={res['dz']:.3f}m"
+        )
 
 
     def _start_area_tool(self):

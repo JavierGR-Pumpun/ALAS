@@ -39,7 +39,7 @@ class LogPanel(QWidget):
         btn_layout.addStretch()
 
         btn_clear = QPushButton("Limpiar")
-        btn_clear.setFixedWidth(80)
+        btn_clear.setFixedWidth(120)
         btn_clear.clicked.connect(self.text_edit.clear)
         btn_layout.addWidget(btn_clear)
 
