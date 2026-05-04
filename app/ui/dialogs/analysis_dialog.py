@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
     QFormLayout, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox,
     QPushButton, QLabel, QMessageBox, QFileDialog,
-    QWidget, QScrollArea, QMainWindow
+    QWidget, QScrollArea, QMainWindow, QListWidget, QListWidgetItem
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
@@ -57,6 +57,7 @@ class HydroResultsWindow(QMainWindow):
                 # Leyenda según tipo
                 legend_text = self._get_legend_text(layer_type)
                 lbl_legend = QLabel(legend_text)
+                lbl_legend.setTextFormat(Qt.TextFormat.RichText)
                 lbl_legend.setStyleSheet("color: #999; font-size: 11px; margin-top: 10px;")
                 lbl_legend.setWordWrap(True)
                 grp_layout.addWidget(lbl_legend)
@@ -73,35 +74,37 @@ class HydroResultsWindow(QMainWindow):
     @staticmethod
     def _get_legend_text(layer_type: str) -> str:
         """Devuelve el texto de leyenda según el tipo de análisis."""
+        sq = "font-size: 15px;"
         legends = {
             "flow_direction": (
-                "Dirección de Flujo (D8):\n"
-                "• Azul (1) = Este | Naranja (2) = Sureste | Verde (4) = Sur | Rojo (8) = Suroeste\n"
-                "• Morado (16) = Oeste | Marrón (32) = Noroeste | Rosa (64) = Norte | Gris (128) = Noreste"
+                "<b>Dirección de Flujo (D8):</b><br>"
+                "• <span style='color: #1f77b4; {sq}'>■</span> Este (1) | "
+                "<span style='color: #ff7f0e; {sq}'>■</span> Sureste (2) | "
+                "<span style='color: #2ca02c; {sq}'>■</span> Sur (4) | "
+                "<span style='color: #d62728; {sq}'>■</span> Suroeste (8) | "
+                "<span style='color: #9467bd; {sq}'>■</span> Oeste (16) | "
+                "<span style='color: #8c564b; {sq}'>■</span> Noroeste (32) | "
+                "<span style='color: #e377c2; {sq}'>■</span> Norte (64) | "
+                "<span style='color: #7f7f7f; {sq}'>■</span> Noreste (128)"
             ),
             "flow_accumulation": (
-                "Acumulación de Flujo:\n"
-                "• Blanco (bajo) → Azul Claro → Azul Marino (alto)\n"
-                "• Valores en celdas acumuladas | Células con valor < 1 → Transparentes"
+                "<b>Acumulación de Flujo:</b><br>"
+                "• <span style='color: #dddddd; {sq}'>■</span> (Bajo) → "
+                "<span style='color: #3a79e0; {sq}'>■</span> (Medio)→ "
+                "<span style='color: #001f3f; {sq}'>■</span> (Alto)<br>"
+                "• Células con valor &lt; 1 → Transparentes"
             ),
             "ponding": (
-                "Zonas de Encharcamiento:\n"
-                "• Tierra (bajo) → Verde → Azul → Oscuro (alto)\n"
-                "• Células con profundidad = 0 → Transparentes\n"
-                "• Valores en metros de profundidad"
-            ),
-            "watershed": (
-                "Delimitación de Cuenca:\n"
-                "• Azul Claro (opacidad moderada) = Área de cuenca\n"
-                "• Transparente = Fuera de la cuenca"
-            ),
-            "conditioned_dem": (
-                "MDT Acondicionado:\n"
-                "• Escala de Terreno (tierra → verde → azul)\n"
-                "• Representa elevación rellenada y acondicionada para hidrología"
+                "<b>Zonas de Encharcamiento:</b><br>"
+                "• Profundidad: <span style='color: #d2b48c; {sq}'>■</span> (Alta) → "
+                "<span style='color: #2ca02c; {sq}'>■</span> (Media) → "
+                "<span style='color: #1f77b4; {sq}'>■</span> (Baja) → "
+                "<span style='color: #000080; {sq}'>■</span> (Muy Baja)<br>"
+                "• Células con profundidad = 0 → Transparentes<br>"
             )
         }
-        return legends.get(layer_type, "Sin información de leyenda disponible")
+        text = legends.get(layer_type, "Sin información de leyenda disponible")
+        return text.replace("{sq}", sq)
 
 
 class AnalysisDialog(QDialog):
@@ -300,18 +303,19 @@ class AnalysisDialog(QDialog):
         layout.addWidget(grp_params)
 
         # Botones
-        btn_layout = QHBoxLayout()
         btn_run = QPushButton("▶ Ejecutar análisis hidrológico")
         btn_run.setObjectName("primary")
         btn_run.clicked.connect(self._run_hydrology)
-        btn_layout.addWidget(btn_run)
+        layout.addWidget(btn_run)
 
         self._btn_view_results = QPushButton("Ver resultados")
         self._btn_view_results.setEnabled(False)
         self._btn_view_results.clicked.connect(self._show_hydro_results)
-        btn_layout.addWidget(self._btn_view_results)
+        layout.addWidget(self._btn_view_results)
 
-        layout.addLayout(btn_layout)
+        self._btn_hydro_history = QPushButton("Historial")
+        self._btn_hydro_history.clicked.connect(self._show_hydro_history)
+        layout.addWidget(self._btn_hydro_history)
 
         layout.addStretch()
         return tab
@@ -319,9 +323,60 @@ class AnalysisDialog(QDialog):
     def _show_hydro_results(self):
         """Muestra la ventana con resultados hidrológicos."""
         if hasattr(self, "_hydro_results") and self._hydro_results:
-            results_window = HydroResultsWindow(self._hydro_results, None)
+            main_window = self.parent()
+            results_window = HydroResultsWindow(self._hydro_results, main_window)
+            results_window.setWindowFlags(Qt.WindowType.Window)
+            results_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            
+            if not hasattr(main_window, "_hydro_result_windows"):
+                main_window._hydro_result_windows = []
+            main_window._hydro_result_windows.append(results_window)
+            
             self._results_window = results_window
             results_window.show()
+
+    def _show_hydro_history(self):
+        """Muestra un modal con el historial de análisis hidrológicos y permite abrirlos."""
+        main_window = self.parent()
+        history = getattr(main_window, "_hydro_history", [])
+        if not history:
+            QMessageBox.information(self, "Historial", "No hay análisis hidrológicos en el historial.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Historial de Análisis Hidrológicos")
+        dlg.setMinimumSize(400, 300)
+        l = QVBoxLayout(dlg)
+        
+        list_widget = QListWidget()
+        for idx, item in enumerate(history):
+            text = f"[{item['timestamp']}] MDT: {item['layer']} ({len(item['results'])} capas)"
+            lw_item = QListWidgetItem(text)
+            lw_item.setData(Qt.ItemDataRole.UserRole, idx)
+            list_widget.addItem(lw_item)
+            
+        l.addWidget(list_widget)
+        
+        btn_open = QPushButton("Abrir resultados seleccionados")
+        def on_open():
+            selected = list_widget.currentItem()
+            if selected:
+                idx = selected.data(Qt.ItemDataRole.UserRole)
+                res = history[idx]["results"]
+                
+                results_window = HydroResultsWindow(res, main_window)
+                results_window.setWindowFlags(Qt.WindowType.Window)
+                results_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+                
+                if not hasattr(main_window, "_hydro_result_windows"):
+                    main_window._hydro_result_windows = []
+                main_window._hydro_result_windows.append(results_window)
+                results_window.show()
+                
+        btn_open.clicked.connect(on_open)
+        l.addWidget(btn_open)
+        
+        dlg.exec()
 
     def _run_hydrology(self):
         idx = self._hydro_raster.currentData()
@@ -354,6 +409,18 @@ class AnalysisDialog(QDialog):
 
             if results:
                 self._hydro_results = results
+                
+                import datetime
+                timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+                main_window = self.parent()
+                if not hasattr(main_window, "_hydro_history"):
+                    main_window._hydro_history = []
+                main_window._hydro_history.append({
+                    "timestamp": timestamp,
+                    "layer": dtm.name,
+                    "results": results
+                })
+
                 self._btn_view_results.setEnabled(True)
                 QMessageBox.information(self, "Completado", "Análisis hidrológico completado.\nPresiona 'Ver resultados' para ver las imágenes.")
             else:
