@@ -38,6 +38,7 @@ _TRANSLATIONS = {
     "action.filter_noise": {"es": "Filtrar ruido", "en": "Filter noise"},
     "action.reproject": {"es": "Reproyectar...", "en": "Reproject..."},
     "action.decimate": {"es": "Decimar nube", "en": "Decimate cloud"},
+    "action.remove_overlap": {"es": "Eliminar solapamiento", "en": "Remove overlap"},
     "action.classify": {"es": "Clasificar terreno...", "en": "Classify terrain..."},
     "action.generate_dem": {"es": "Generar modelo digital...", "en": "Generate digital model..."},
 

@@ -130,6 +130,10 @@ class ClassificationDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
+        btn_clear = QPushButton("Limpiar clasificación")
+        btn_clear.clicked.connect(self._clear_classification)
+        btn_layout.addWidget(btn_clear)
+
         btn_cancel = QPushButton(tr("dialog.cancel"))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
@@ -180,6 +184,21 @@ class ClassificationDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, tr("error.processing_failed"), str(e))
+
+    def _clear_classification(self):
+        """Limpia la clasificación, estableciendo todos los puntos como no clasificados (clase 1)."""
+        if self.pc.classification is None:
+            QMessageBox.information(self, "Info", "La nube no tiene clasificación para limpiar.")
+            return
+        reply = QMessageBox.question(
+            self, "Confirmar", 
+            "¿Estás seguro de que quieres limpiar la clasificación? Esto establecerá todos los puntos como no clasificados.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.pc.classification[:] = 1 
+            self._result = self.pc.classification.copy()
+            self.accept()
 
     def get_result(self):
         return self._result

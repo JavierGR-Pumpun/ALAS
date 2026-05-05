@@ -103,6 +103,10 @@ class PropertiesPanel(QWidget):
         form.addRow("<b>" + tr("prop.point_count") + "</b>", QLabel(f"{pc.point_count:,}"))
         form.addRow("<b>Formato LAS</b>", QLabel(f"v{pc.file_version or '?'} (formato {pc.point_format or '?'})"))
         
+        lbl_sensor = QLabel(pc.system_identifier or "No especificado")
+        lbl_sensor.setToolTip("Identificador del sensor/sistema LiDAR")
+        form.addRow("<b>Sensor</b>", lbl_sensor)
+        
         lbl_crs = QLabel(f"EPSG:{pc.crs_epsg}" if pc.crs_epsg else tr("status.no_crs"))
         lbl_crs.setToolTip("Sistema de Referencia de Coordenadas")
         form.addRow("<b>" + tr("prop.crs") + "</b>", lbl_crs)

@@ -38,6 +38,7 @@ class PointCloudData:
         self.point_format: Optional[int] = None
         self.file_version: Optional[str] = None
         self.creation_date: Optional[str] = None
+        self.system_identifier: Optional[str] = None
         self.extra_dims: Dict[str, np.ndarray] = {}
 
         # Name for layer panel
@@ -94,6 +95,41 @@ class PointCloudData:
             return None
         return np.unique(self.classification)
 
+    @property
+    def sensor_type(self) -> str:
+        """
+        Normaliza system_identifier a un tipo de sensor conocido.
+        Retorna: 'aerial', 'uav', 'tls', 'mls', 'bathymetric', 'unknown'
+        """
+        if not self.system_identifier:
+            return "unknown"
+
+        sid = self.system_identifier.upper().strip()
+
+        uav_keywords = ["UAV", "UAS", "DRONE", "DJI", "PHANTOM", "MATRICE", "WINGTRA"]
+        tls_keywords = ["TLS", "TERRESTRIAL", "FARO", "LEICA RTC", "Z+F", "TRIMBLE TX"]
+        mls_keywords = ["MLS", "MOBILE", "RIEGL VMX", "OPTECH LYNX", "VELODYNE"]
+        bathy_keywords = ["BATHY", "AQUARIUS", "CARIS", "HAWKEYE"]
+        aerial_keywords = ["AL", "AERIAL", "ALS", "LEICA ALS", "RIEGL VQ", "OPTECH ALTM",
+                        "TRIMBLE AX", "IGN", "PNOA"]
+
+        for kw in uav_keywords:
+            if kw in sid:
+                return "uav"
+        for kw in tls_keywords:
+            if kw in sid:
+                return "tls"
+        for kw in mls_keywords:
+            if kw in sid:
+                return "mls"
+        for kw in bathy_keywords:
+            if kw in sid:
+                return "bathymetric"
+        for kw in aerial_keywords:
+            if kw in sid:
+                return "aerial"
+
+        return "unknown"
     # ------------------------------------------------------------------
     # I/O
     # ------------------------------------------------------------------
@@ -160,10 +196,17 @@ class PointCloudData:
         # File info
         pc.point_format = las.header.point_format.id
         pc.file_version = f"{las.header.version.major}.{las.header.version.minor}"
+        # system_identifier puede ser bytes o str según versión de laspy
+        sys_id = las.header.system_identifier
+        if isinstance(sys_id, bytes):
+            pc.system_identifier = sys_id.decode('utf-8', errors='ignore').strip()
+        else:
+            pc.system_identifier = str(sys_id).strip() if sys_id else None
 
         logger.info(
             f"Cargados {pc.point_count:,} puntos | "
             f"CRS: EPSG:{pc.crs_epsg or 'desconocido'} | "
+            f"Sensor: {pc.system_identifier or 'no especificado'} | "
             f"Formato: {pc.point_format}"
         )
         return pc
@@ -174,7 +217,9 @@ class PointCloudData:
             for vlr in las.vlrs:
                 # WKT
                 if vlr.record_id == 2112:
-                    self.crs_wkt = vlr.record_data.decode("utf-8", errors="ignore").strip("\x00")
+                    raw = vlr.record_data.decode("utf-8", errors="ignore").strip("\x00")
+                    # Guardar WKT original para metadatos pero versión limpia para I/O
+                    self.crs_wkt = raw
                     break
             # Intentar extraer EPSG del WKT
             if self.crs_wkt:
@@ -245,8 +290,9 @@ class PointCloudData:
         # CRS como VLR WKT
         if self.crs_wkt:
             from laspy import VLR
-            vlr = VLR("LASF_Projection", 2112,
-                       self.crs_wkt.encode("utf-8"))
+            # Limpiar WKT de caracteres non-ASCII antes de escribir al LAS temporal
+            wkt_clean = self.crs_wkt.encode("ascii", errors="ignore").decode("ascii")
+            vlr = VLR("LASF_Projection", 2112, wkt_clean.encode("ascii"))
             las.vlrs.append(vlr)
 
         path.parent.mkdir(parents=True, exist_ok=True)
