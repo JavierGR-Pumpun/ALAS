@@ -574,25 +574,29 @@ class MainWindow(QMainWindow):
                     self.layer_manager.add_layer(raster)
                 self._update_status(tr("success.dem_generated"))
 
+    def _show_analysis_dialog(self, tab_name: str):
+        if not hasattr(self, "_analysis_dialog") or self._analysis_dialog is None:
+            from app.ui.dialogs.analysis_dialog import AnalysisDialog
+            self._analysis_dialog = AnalysisDialog(tab_name, self.layer_manager, self)
+            self._analysis_dialog.setWindowFlags(Qt.WindowType.Window)
+        else:
+            self._analysis_dialog.set_tab(tab_name)
+            
+        self._analysis_dialog.show()
+        self._analysis_dialog.raise_()
+        self._analysis_dialog.activateWindow()
+
     def _show_geomorphology_dialog(self):
-        from app.ui.dialogs.analysis_dialog import AnalysisDialog
-        dlg = AnalysisDialog("geomorphology", self.layer_manager, self)
-        dlg.exec()
+        self._show_analysis_dialog("geomorphology")
 
     def _show_hydrology_dialog(self):
-        from app.ui.dialogs.analysis_dialog import AnalysisDialog
-        dlg = AnalysisDialog("hydrology", self.layer_manager, self)
-        dlg.exec()
+        self._show_analysis_dialog("hydrology")
 
     def _show_vegetation_dialog(self):
-        from app.ui.dialogs.analysis_dialog import AnalysisDialog
-        dlg = AnalysisDialog("vegetation", self.layer_manager, self)
-        dlg.exec()
+        self._show_analysis_dialog("vegetation")
 
     def _show_multitemporal_dialog(self):
-        from app.ui.dialogs.analysis_dialog import AnalysisDialog
-        dlg = AnalysisDialog("multitemporal", self.layer_manager, self)
-        dlg.exec()
+        self._show_analysis_dialog("multitemporal")
 
     def _show_reproject_dialog(self):
         from app.ui.dialogs.crs_dialog import CRSDialog

@@ -116,6 +116,14 @@ class AnalysisDialog(QDialog):
         self.setWindowTitle(tr("menu.analysis"))
         self.setMinimumSize(550, 600)
         self._setup_ui(initial_tab)
+        
+        self.layer_manager.layer_added.connect(self._update_combos)
+        self.layer_manager.layer_removed.connect(self._update_combos)
+
+    def set_tab(self, tab_name: str):
+        """Cambia a la pestaña indicada."""
+        tab_map = {"geomorphology": 0, "hydrology": 1, "vegetation": 2, "multitemporal": 3}
+        self._tabs.setCurrentIndex(tab_map.get(tab_name, 0))
 
     def _setup_ui(self, initial_tab: str):
         layout = QVBoxLayout(self)
@@ -155,12 +163,36 @@ class AnalysisDialog(QDialog):
     def _get_raster_combo(self) -> QComboBox:
         """Crea un combo con las capas raster disponibles."""
         combo = QComboBox()
+        self._populate_combo(combo)
+        return combo
+
+    def _populate_combo(self, combo: QComboBox):
+        """Llena un combobox con las capas raster actuales, manteniendo la selección si es posible."""
+        current_data = combo.currentData()
+        combo.clear()
+        
+        # Encontrar nueva selección
+        new_index = 0
         for i, entry in enumerate(self.layer_manager.get_all_entries()):
             if entry.is_raster:
                 combo.addItem(entry.name, i)
+                if i == current_data:
+                    new_index = combo.count() - 1
+                    
         if combo.count() == 0:
             combo.addItem("(No hay capas raster)", -1)
-        return combo
+        else:
+            combo.setCurrentIndex(new_index)
+
+    def _update_combos(self, *args):
+        """Actualiza todos los combos cuando cambian las capas."""
+        if not hasattr(self, "_geo_raster"):
+            return
+        self._populate_combo(self._geo_raster)
+        self._populate_combo(self._hydro_raster)
+        self._populate_combo(self._veg_raster)
+        self._populate_combo(self._multi_before)
+        self._populate_combo(self._multi_after)
 
     # ------------------------------------------------------------------
     # Geomorphology Tab
@@ -343,9 +375,19 @@ class AnalysisDialog(QDialog):
             QMessageBox.information(self, "Historial", "No hay análisis hidrológicos en el historial.")
             return
 
+        if hasattr(main_window, "_hydro_history_dialog") and main_window._hydro_history_dialog is not None:
+            try:
+                main_window._hydro_history_dialog.close()
+            except RuntimeError:
+                pass
+                
         dlg = QDialog(self)
         dlg.setWindowTitle("Historial de Análisis Hidrológicos")
         dlg.setMinimumSize(400, 300)
+        dlg.setWindowFlags(Qt.WindowType.Window)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        main_window._hydro_history_dialog = dlg
+        
         l = QVBoxLayout(dlg)
         
         list_widget = QListWidget()
@@ -376,7 +418,9 @@ class AnalysisDialog(QDialog):
         btn_open.clicked.connect(on_open)
         l.addWidget(btn_open)
         
-        dlg.exec()
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _run_hydrology(self):
         idx = self._hydro_raster.currentData()
