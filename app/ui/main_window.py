@@ -239,6 +239,10 @@ class MainWindow(QMainWindow):
         act_decimate.triggered.connect(self._decimate_cloud)
         menu_proc.addAction(act_decimate)
 
+        act_overlap = QAction(tr("action.remove_overlap"), self)
+        act_overlap.triggered.connect(self._remove_overlap)
+        menu_proc.addAction(act_overlap)
+
         # --- Análisis ---
         menu_analysis = menubar.addMenu(tr("menu.analysis"))
 
@@ -641,6 +645,14 @@ class MainWindow(QMainWindow):
             from app.processing.preprocessing import decimate
             result = decimate(entry.layer, voxel_size=voxel)
             self.layer_manager.add_layer(result)
+
+    def _remove_overlap(self):
+        entry = self.layer_manager.active_layer
+        if not entry or not entry.is_point_cloud:
+            return
+        from app.processing.preprocessing import handle_overlap
+        result = handle_overlap(entry.layer, strategy="remove")
+        self.layer_manager.add_layer(result)
 
     # --- Tools ---
     def _start_profile_tool(self):

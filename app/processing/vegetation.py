@@ -94,7 +94,41 @@ def segment_crowns(chm: RasterLayer, tree_tops: np.ndarray,
     n_trees = len(np.unique(labels)) - 1  # Excluir 0 (background)
     logger.info(f"Segmentadas {n_trees} copas individuales")
 
-    return labels
+    return labels, data
+
+
+def build_crown_raster(chm: RasterLayer,
+                       height_map: np.ndarray,
+                       labels: np.ndarray) -> RasterLayer:
+    """
+    Construye un raster de copas segmentadas.
+    Cada píxel de copa toma la altura máxima de su segmento.
+    """
+    logger.info("Construyendo raster de copas segmentadas...")
+
+    crown_data = np.full(labels.shape, chm.nodata, dtype=np.float32)
+    unique_ids = np.unique(labels)
+    unique_ids = unique_ids[unique_ids > 0]
+
+    for tree_id in unique_ids:
+        mask = labels == tree_id
+        if not mask.any():
+            continue
+        crown_data[mask] = float(np.max(height_map[mask]))
+
+    bounds = chm.bounds
+    if bounds is None:
+        raise ValueError("No se puede construir raster de copas sin bounds válidos.")
+
+    result = RasterLayer.from_array(
+        crown_data,
+        bounds,
+        epsg=chm.crs_epsg,
+        nodata=chm.nodata,
+        name="Copas_vegetación"
+    )
+    result.crs = chm.crs
+    return result
 
 
 def compute_canopy_stats(chm: RasterLayer,

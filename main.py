@@ -4,9 +4,13 @@ Punto de entrada principal de la aplicación.
 
 conda env create -f environment.yml || conda env update -f environment.yml; conda run -n alas python main.py
 """
+import os
+os.environ["PYTHONIOENCODING"] = "utf-8"
+os.environ["PDAL_DRIVER_PATH"] = ""   # fuerza PDAL a no buscar plugins con rutas non-ASCII
+os.environ["LC_ALL"] = "C"            # locale ASCII puro — funciona en Mac, Linux y WSL
+os.environ["LANG"] = "C"
 
 import sys
-import os
 from pathlib import Path
 
 # Asegurar que el directorio raíz está en el path

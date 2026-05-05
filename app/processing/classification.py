@@ -79,35 +79,54 @@ def classify_ground_pmf(pc: PointCloudData,
 
 def _run_ground_classification(pc: PointCloudData, filter_type: str,
                                 params: dict) -> np.ndarray:
-    """Ejecuta un pipeline PDAL de clasificación de suelo."""
+    """Ejecuta un pipeline PDAL de clasificacion de suelo."""
     import pdal
+    import os
 
-    tmp_in = tempfile.NamedTemporaryFile(suffix=".las", delete=False)
-    tmp_out = tempfile.NamedTemporaryFile(suffix=".las", delete=False)
-    tmp_in.close()
-    tmp_out.close()
+    # Directorio temporal garantizado ASCII en Mac/Win/Linux
+    tmp_dir = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
+    # Si la ruta tiene caracteres no-ASCII, caer a /tmp (Mac/Linux) o C:\Temp (Win)
+    try:
+        str(tmp_dir).encode("ascii")
+    except UnicodeEncodeError:
+        tmp_dir = Path("/tmp") if os.name != "nt" else Path("C:/Temp")
+        tmp_dir.mkdir(exist_ok=True)
+
+    uid = id(pc)
+    tmp_in  = tmp_dir / f"alas_in_{uid}.las"
+    tmp_out = tmp_dir / f"alas_out_{uid}.las"
 
     try:
-        pc.to_file(tmp_in.name, compress=False)
+        pc.to_file(str(tmp_in), compress=False)
 
         filter_stage = {"type": filter_type}
         filter_stage.update(params)
 
-        pipeline_json = json.dumps([
-            {"type": "readers.las", "filename": tmp_in.name},
+        pipeline_def = [
+            {"type": "readers.las", "filename": tmp_in.as_posix()},
             filter_stage,
-            {"type": "writers.las", "filename": tmp_out.name},
-        ])
+            {
+                "type": "writers.las",
+                "filename": tmp_out.as_posix(),
+                "forward": "all",
+            },
+        ]
+
+        # Serializar limpio, escapar cualquier non-ASCII
+        pipeline_json = json.dumps(pipeline_def, ensure_ascii=True)
+
+        # Guardia: reventar antes de que lo haga PDAL
+        pipeline_json.encode("ascii")
+
+        print(repr(pipeline_json[1580:1610]))
 
         pipeline = pdal.Pipeline(pipeline_json)
         count = pipeline.execute()
-        logger.info(f"Clasificación completada: {count:,} puntos procesados")
+        logger.info(f"Clasificacion completada: {count:,} puntos procesados")
 
-        # Leer resultado
-        result = PointCloudData.from_file(tmp_out.name)
+        result = PointCloudData.from_file(str(tmp_out))
         classification = result.classification
 
-        # Stats
         ground_count = np.sum(classification == 2)
         total = len(classification)
         pct = (ground_count / total * 100) if total > 0 else 0
@@ -116,8 +135,8 @@ def _run_ground_classification(pc: PointCloudData, filter_type: str,
         return classification
 
     finally:
-        Path(tmp_in.name).unlink(missing_ok=True)
-        Path(tmp_out.name).unlink(missing_ok=True)
+        tmp_in.unlink(missing_ok=True)
+        tmp_out.unlink(missing_ok=True)
 
 
 def classify_above_ground(pc: PointCloudData) -> np.ndarray:

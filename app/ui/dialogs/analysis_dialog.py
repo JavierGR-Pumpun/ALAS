@@ -55,7 +55,7 @@ class HydroResultsWindow(QMainWindow):
                 grp_layout.addWidget(lbl_img)
 
                 # Leyenda según tipo
-                legend_text = self._get_legend_text(layer_type)
+                legend_text = self._get_legend_text(layer_type, raster_layer)
                 lbl_legend = QLabel(legend_text)
                 lbl_legend.setTextFormat(Qt.TextFormat.RichText)
                 lbl_legend.setStyleSheet("color: #999; font-size: 11px; margin-top: 10px;")
@@ -72,9 +72,29 @@ class HydroResultsWindow(QMainWindow):
         self.setCentralWidget(scroll)
 
     @staticmethod
-    def _get_legend_text(layer_type: str) -> str:
+    def _get_legend_text(layer_type: str, raster_layer=None) -> str:
         """Devuelve el texto de leyenda según el tipo de análisis."""
         sq = "font-size: 15px;"
+
+        if layer_type == "rainfall_runoff" and raster_layer is not None:
+            import numpy as np
+            rainfall_mm_h = getattr(raster_layer, "rainfall_mm_h", None)
+            cell_area_m2 = getattr(raster_layer, "rainfall_cell_area_m2", 1.0)
+            data = raster_layer.data if hasattr(raster_layer, "data") else None
+            if rainfall_mm_h is not None and data is not None:
+                from app.config import DEFAULT_NODATA
+                arr = np.asarray(data, dtype=np.float32)
+                if arr.ndim > 2:
+                    arr = arr[0]
+                return (
+                    f"<b>Escorrentía por Precipitaciones — {rainfall_mm_h} mm/h</b><br>"
+                    f"• <span style='color: #e8f4fd; {sq}'>■</span> Débil (&lt; 1 mm/h) | "
+                    f"<span style='color: #2196f3; {sq}'>■</span> Moderado (1–10 mm/h) | "
+                    f"<span style='color: #0d47a1; {sq}'>■</span> Fuerte (10–50 mm/h) | "
+                    f"<span style='color: #1a237e; {sq}'>■</span> Extremo (&gt; 50 mm/h)<br>"
+                    f"• Escala 1–150 mm/h."
+                )
+
         legends = {
             "flow_direction": (
                 "<b>Dirección de Flujo (D8):</b><br>"
@@ -92,7 +112,7 @@ class HydroResultsWindow(QMainWindow):
                 "• <span style='color: #dddddd; {sq}'>■</span> (Bajo) → "
                 "<span style='color: #3a79e0; {sq}'>■</span> (Medio)→ "
                 "<span style='color: #001f3f; {sq}'>■</span> (Alto)<br>"
-                "• Células con valor &lt; 1 → Transparentes"
+                "• Células con valor < 1 → Transparentes"
             ),
             "ponding": (
                 "<b>Zonas de Encharcamiento:</b><br>"
@@ -101,6 +121,14 @@ class HydroResultsWindow(QMainWindow):
                 "<span style='color: #1f77b4; {sq}'>■</span> (Baja) → "
                 "<span style='color: #000080; {sq}'>■</span> (Muy Baja)<br>"
                 "• Células con profundidad = 0 → Transparentes<br>"
+            ),
+            "rainfall_runoff": (
+                "<b>Escorrentía por Precipitaciones (m³/h):</b><br>"
+                "• <span style='color: #e8f4fd; {sq}'>■</span> (Bajo) → "
+                "<span style='color: #2196f3; {sq}'>■</span> (Medio) → "
+                "<span style='color: #0d47a1; {sq}'>■</span> (Alto) → "
+                "<span style='color: #1a237e; {sq}'>■</span> (Muy Alto)<br>"
+                "• Escala logarítmica. Células sin flujo → Transparentes"
             )
         }
         text = legends.get(layer_type, "Sin información de leyenda disponible")
@@ -324,6 +352,8 @@ class AnalysisDialog(QDialog):
         vl.addWidget(self._chk_flow_acc)
         self._chk_ponding = QCheckBox("Zonas de encharcamiento")
         vl.addWidget(self._chk_ponding)
+        self._chk_rainfall = QCheckBox("Simulación de precipitaciones")
+        vl.addWidget(self._chk_rainfall)
         layout.addWidget(grp_anal)
 
         grp_params = QGroupBox("Parámetros")
@@ -332,6 +362,12 @@ class AnalysisDialog(QDialog):
         self._drainage_threshold.setRange(10, 100000)
         self._drainage_threshold.setValue(1000)
         form_p.addRow("Umbral red drenaje", self._drainage_threshold)
+        self._rainfall_intensity = QDoubleSpinBox()
+        self._rainfall_intensity.setRange(0.1, 1000.0)
+        self._rainfall_intensity.setValue(10.0)
+        self._rainfall_intensity.setDecimals(1)
+        self._rainfall_intensity.setSuffix(" mm/h")
+        form_p.addRow("Intensidad precipitación", self._rainfall_intensity)
         layout.addWidget(grp_params)
 
         # Botones
@@ -434,7 +470,7 @@ class AnalysisDialog(QDialog):
 
         try:
             from app.processing.hydrology import (
-                flow_direction, flow_accumulation, detect_ponding_zones
+                flow_direction, flow_accumulation, detect_ponding_zones, simulate_rainfall
             )
 
             results = {}
@@ -450,6 +486,10 @@ class AnalysisDialog(QDialog):
             if self._chk_ponding.isChecked():
                 result = detect_ponding_zones(dtm)
                 results["ponding"] = result
+
+            if self._chk_rainfall.isChecked():
+                result = simulate_rainfall(dtm, rainfall_mm_h=self._rainfall_intensity.value())
+                results["rainfall_runoff"] = result
 
             if results:
                 self._hydro_results = results

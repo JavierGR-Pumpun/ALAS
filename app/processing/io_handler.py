@@ -70,11 +70,18 @@ def get_file_info(path: str) -> dict:
 
     with laspy.open(str(path)) as reader:
         header = reader.header
+        # system_identifier puede ser bytes o str según versión de laspy
+        sys_id = header.system_identifier
+        if isinstance(sys_id, bytes):
+            system_id = sys_id.decode('utf-8', errors='ignore').strip()
+        else:
+            system_id = str(sys_id).strip() if sys_id else None
         info = {
             "file": str(path),
             "version": f"{header.version.major}.{header.version.minor}",
             "point_format": header.point_format.id,
             "point_count": header.point_count,
+            "system_identifier": system_id,
             "scale": list(header.scales),
             "offset": list(header.offsets),
             "mins": list(header.mins),
