@@ -169,6 +169,54 @@ def extract_drainage_network(dtm: RasterLayer,
     return branches
 
 
+def simulate_rainfall(dtm: RasterLayer,
+                      rainfall_mm_h: float,
+                      conditioned: Optional[RasterLayer] = None) -> RasterLayer:
+    """
+    Simulates rainfall and computes accumulated runoff volume per cell.
+
+    Each cell contributes its area multiplied by the rainfall intensity to the
+    downstream flow accumulation, resulting in a runoff volume map (m³/h).
+
+    Args:
+        dtm: Original DTM.
+        rainfall_mm_h: Rainfall intensity in mm/h.
+        conditioned: Pre-conditioned DTM (optional, avoids reprocessing).
+
+    Returns:
+        RasterLayer with accumulated runoff volume in m³/h per cell.
+    """
+    logger.info(f"Simulating rainfall at {rainfall_mm_h} mm/h...")
+
+    grid, dem = _prepare_dem(dtm, conditioned)
+    fdir = grid.flowdir(dem)
+
+    cell_area_m2 = 1.0
+    if dtm.resolution:
+        cell_area_m2 = float(dtm.resolution[0]) * float(dtm.resolution[1])
+
+    rainfall_m_h = rainfall_mm_h / 1000.0
+    weight_per_cell = rainfall_m_h * cell_area_m2
+
+    weights = np.full_like(fdir, weight_per_cell, dtype=np.float64)
+    acc = grid.accumulation(fdir, weights=weights)
+
+    acc_arr = np.array(acc, dtype=np.float32)
+    acc_arr[np.isnan(acc_arr)] = DEFAULT_NODATA
+
+    valid = acc_arr[acc_arr != DEFAULT_NODATA]
+    if valid.size > 0:
+        logger.info(
+            f"Rainfall simulation complete. Max runoff: {float(np.max(valid)):.4f} m³/h, "
+            f"cell area: {cell_area_m2:.2f} m²"
+        )
+
+    result = _build_result(acc_arr, dtm, name=f"Runoff_{rainfall_mm_h}mmh")
+    result.rainfall_mm_h = rainfall_mm_h
+    result.rainfall_cell_area_m2 = cell_area_m2
+    return result
+
+
 def detect_ponding_zones(dtm: RasterLayer,
                           threshold: float = 0.1) -> RasterLayer:
     """

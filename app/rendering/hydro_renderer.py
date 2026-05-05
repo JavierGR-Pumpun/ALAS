@@ -58,6 +58,7 @@ _ALLOWED_LAYER_TYPES = {
     "watershed",
     "ponding",
     "conditioned_dem",
+    "rainfall_runoff",
 }
 
 
@@ -66,6 +67,7 @@ class HydroRenderer:
 
     def __init__(self, layer: Union[RasterLayer, np.ndarray], layer_type: str):
         self.layer_type = layer_type
+        self._source_layer = layer
         self.array = self._extract_array(layer)
         self.nodata = self._extract_nodata(layer)
 
@@ -84,6 +86,8 @@ class HydroRenderer:
             rgba = self._render_ponding()
         elif self.layer_type == "conditioned_dem":
             rgba = self._render_conditioned_dem()
+        elif self.layer_type == "rainfall_runoff":
+            rgba = self._render_rainfall_runoff()
         else:
             raise ValueError(f"Tipo de capa no soportado: {self.layer_type}")
 
@@ -196,6 +200,35 @@ class HydroRenderer:
         rgba[zero_mask] = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
         rgba[mask] = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
         return self._build_rgba(rgba, mask | zero_mask)
+
+    def _render_rainfall_runoff(self) -> np.ndarray:
+        data = self.array.astype(np.float32)
+        mask = self._mask_nodata(data) | (data <= 0.0)
+        valid = ~mask
+
+        rgba = np.zeros((*data.shape, 4), dtype=np.float32)
+        if np.any(valid):
+            rainfall_mm_h = getattr(self._source_layer, "rainfall_mm_h", None)
+
+            if rainfall_mm_h is not None:
+                cell_area_m2 = getattr(self._source_layer, "rainfall_cell_area_m2", 1.0)
+                total_cells = int(np.sum(valid))
+                # Fixed scale 1-150 mm/h so colour intensity is always comparable.
+                vmin = float((1.0 / 1000.0) * cell_area_m2 * total_cells * 0.001)
+                vmax = float((150.0 / 1000.0) * cell_area_m2 * total_cells)
+            else:
+                vmax = float(np.nanpercentile(data[valid], 99.5))
+                vmin = float(np.nanmin(data[valid]))
+
+            norm = LogNorm(vmin=max(vmin, 1e-9), vmax=max(vmax, vmin + 1e-9))
+            cmap = LinearSegmentedColormap.from_list(
+                "rainfall_runoff",
+                ["#e8f4fd", "#2196f3", "#0d47a1", "#1a237e"],
+                N=256
+            )
+            rgba[valid] = cmap(norm(data[valid]))
+        rgba[mask] = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        return self._build_rgba(rgba, mask)
 
     def _render_conditioned_dem(self) -> np.ndarray:
         data = self.array.astype(np.float32)
