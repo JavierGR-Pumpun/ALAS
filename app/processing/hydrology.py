@@ -217,6 +217,48 @@ def simulate_rainfall(dtm: RasterLayer,
     return result
 
 
+def simulate_flood(dtm: RasterLayer, water_height: float) -> RasterLayer:
+    """
+    Simulates a flood scenario by flooding all terrain cells whose elevation
+    is below a given absolute water level.
+
+    Args:
+        dtm: Original DTM raster layer.
+        water_height: Absolute water surface elevation in the same units as the DTM.
+
+    Returns:
+        RasterLayer where each cell value is the flood depth (water_height - elevation)
+        for inundated cells, and 0 for cells above the water level.
+    """
+    logger.info(f"Simulating flood at water level {water_height} m...")
+
+    arr = np.asarray(dtm.data, dtype=np.float32)
+    if arr.ndim > 2:
+        arr = arr[0]
+
+    nodata_mask = np.isnan(arr) | (arr == DEFAULT_NODATA)
+
+    depth = np.zeros_like(arr, dtype=np.float32)
+    flooded = (~nodata_mask) & (arr < water_height)
+    depth[flooded] = water_height - arr[flooded]
+    depth[nodata_mask] = DEFAULT_NODATA
+
+    flooded_cells = int(np.sum(flooded))
+    if dtm.resolution and flooded_cells > 0:
+        area_m2 = flooded_cells * dtm.resolution[0] * dtm.resolution[1]
+        logger.info(
+            f"Flood simulation complete. Inundated: {flooded_cells} cells "
+            f"({area_m2 / 10_000:.2f} ha), max depth: {float(np.max(depth[flooded])):.2f} m"
+        )
+    else:
+        logger.info("Flood simulation complete. No cells inundated at this water level.")
+
+    result = _build_result(depth, dtm, name=f"Flood_{water_height:.1f}m")
+    result.flood_water_height = water_height
+    result.flood_terrain_arr = arr
+    return result
+
+
 def detect_ponding_zones(dtm: RasterLayer,
                           threshold: float = 0.1) -> RasterLayer:
     """

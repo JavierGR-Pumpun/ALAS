@@ -233,23 +233,43 @@ class Viewport3D(QWidget):
         y = np.linspace(ymax, ymin, rows)  # Y invertido en rasters
         xx, yy = np.meshgrid(x, y)
 
-        # Reemplazar nodata por NaN
-        z = data.astype(np.float32).copy()
-        z[z == raster.nodata] = np.nan
+        terrain_arr = getattr(raster, "flood_terrain_arr", None)
+        is_flood = terrain_arr is not None
+
+        if is_flood:
+            z = np.asarray(terrain_arr, dtype=np.float32).copy()
+            z[z == raster.nodata] = np.nan
+            depth = data.astype(np.float32).copy()
+            depth[depth == raster.nodata] = np.nan
+            depth[depth <= 0.0] = np.nan
+        else:
+            z = data.astype(np.float32).copy()
+            z[z == raster.nodata] = np.nan
 
         grid = pv.StructuredGrid(xx, yy, z)
-        grid["Elevation"] = z.ravel(order="F")
 
         self._remove_actor(name)
 
-        actor = self.plotter.add_mesh(
-            grid,
-            scalars="Elevation",
-            cmap="terrain",
-            nan_opacity=0,
-            show_scalar_bar=False,
-            name=name,
-        )
+        if is_flood:
+            grid["Depth"] = depth.ravel(order="F")
+            actor = self.plotter.add_mesh(
+                grid,
+                scalars="Depth",
+                cmap="Blues",
+                nan_opacity=0,
+                show_scalar_bar=False,
+                name=name,
+            )
+        else:
+            grid["Elevation"] = z.ravel(order="F")
+            actor = self.plotter.add_mesh(
+                grid,
+                scalars="Elevation",
+                cmap="terrain",
+                nan_opacity=0,
+                show_scalar_bar=False,
+                name=name,
+            )
         self._current_actors[name] = actor
 
     # ------------------------------------------------------------------

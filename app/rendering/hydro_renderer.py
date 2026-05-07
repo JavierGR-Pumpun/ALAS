@@ -59,7 +59,14 @@ _ALLOWED_LAYER_TYPES = {
     "ponding",
     "conditioned_dem",
     "rainfall_runoff",
+    "flood_simulation",
 }
+
+_FLOOD_CMAP = LinearSegmentedColormap.from_list(
+    "flood_simulation",
+    ["#aad4f5", "#2196f3", "#1565c0", "#0d2b6e", "#000033"],
+    N=256
+)
 
 
 class HydroRenderer:
@@ -88,6 +95,8 @@ class HydroRenderer:
             rgba = self._render_conditioned_dem()
         elif self.layer_type == "rainfall_runoff":
             rgba = self._render_rainfall_runoff()
+        elif self.layer_type == "flood_simulation":
+            rgba = self._render_flood_simulation()
         else:
             raise ValueError(f"Tipo de capa no soportado: {self.layer_type}")
 
@@ -229,6 +238,52 @@ class HydroRenderer:
             rgba[valid] = cmap(norm(data[valid]))
         rgba[mask] = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
         return self._build_rgba(rgba, mask)
+
+    def _render_flood_simulation(self) -> np.ndarray:
+        depth = self.array.astype(np.float32)
+        nodata_mask = self._mask_nodata(depth)
+
+        terrain_arr = getattr(self._source_layer, "flood_terrain_arr", None)
+
+        # --- Terrain background (RGB) ---
+        if terrain_arr is not None:
+            terrain = np.asarray(terrain_arr, dtype=np.float32)
+        else:
+            terrain = depth.copy()
+
+        terrain_nodata = nodata_mask if terrain_arr is None else (
+            np.isnan(terrain) | (terrain == DEFAULT_NODATA)
+        )
+        bg = np.zeros((*depth.shape, 4), dtype=np.float32)
+        if np.any(~terrain_nodata):
+            valid_t = ~terrain_nodata
+            vmin_t = float(np.nanpercentile(terrain[valid_t], 2.0))
+            vmax_t = float(np.nanpercentile(terrain[valid_t], 98.0))
+            norm_t = Normalize(vmin=vmin_t, vmax=max(vmax_t, vmin_t + 0.01))
+            bg[valid_t] = _TERRAIN_CMAP(norm_t(terrain[valid_t]))
+        bg[terrain_nodata] = 0.0
+
+        # --- Water overlay (semi-transparent blue) ---
+        flooded = (~nodata_mask) & (depth > 0.0)
+        water = np.zeros((*depth.shape, 4), dtype=np.float32)
+        if np.any(flooded):
+            vmax_w = float(np.nanpercentile(depth[flooded], 99.0))
+            norm_w = Normalize(vmin=0.0, vmax=max(vmax_w, 0.01))
+            water[flooded] = _FLOOD_CMAP(norm_w(depth[flooded]))
+            water[flooded, 3] = 0.65
+
+        # --- Alpha-composite water over terrain ---
+        alpha_w = water[..., 3:4]
+        composite = water[..., :3] * alpha_w + bg[..., :3] * (1.0 - alpha_w)
+        alpha_out = alpha_w[..., 0] + bg[..., 3] * (1.0 - alpha_w[..., 0])
+
+        out = np.zeros((*depth.shape, 4), dtype=np.float32)
+        out[..., :3] = composite
+        out[..., 3] = alpha_out
+        out[nodata_mask] = 0.0
+
+        out_uint8 = np.clip(out * 255.0, 0, 255).astype(np.uint8)
+        return out_uint8
 
     def _render_conditioned_dem(self) -> np.ndarray:
         data = self.array.astype(np.float32)

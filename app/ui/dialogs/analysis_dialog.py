@@ -95,6 +95,27 @@ class HydroResultsWindow(QMainWindow):
                     f"• Escala 1–150 mm/h."
                 )
 
+        if layer_type == "flood_simulation" and raster_layer is not None:
+            water_height = getattr(raster_layer, "flood_water_height", None)
+            import numpy as np
+            data = raster_layer.data if hasattr(raster_layer, "data") else None
+            if water_height is not None and data is not None:
+                from app.config import DEFAULT_NODATA
+                arr = np.asarray(data, dtype=np.float32)
+                if arr.ndim > 2:
+                    arr = arr[0]
+                valid = arr[(arr != DEFAULT_NODATA) & (arr > 0)]
+                max_depth = float(np.max(valid)) if valid.size > 0 else 0.0
+                flooded_cells = int(np.sum((arr != DEFAULT_NODATA) & (arr > 0)))
+                return (
+                    f"<b>Simulación de Inundación — Nivel {water_height:.2f} m</b><br>"
+                    f"• <span style='color: #aad4f5; {sq}'>■</span> Superficial (&lt; 0.5 m) | "
+                    f"<span style='color: #2196f3; {sq}'>■</span> Moderada (0.5–2 m) | "
+                    f"<span style='color: #1565c0; {sq}'>■</span> Profunda (2–5 m) | "
+                    f"<span style='color: #000033; {sq}'>■</span> Muy profunda (&gt; 5 m)<br>"
+                    f"• Celdas inundadas: {flooded_cells} | Profundidad máxima: {max_depth:.2f} m"
+                )
+
         legends = {
             "flow_direction": (
                 "<b>Dirección de Flujo (D8):</b><br>"
@@ -322,6 +343,8 @@ class AnalysisDialog(QDialog):
         vl.addWidget(self._chk_ponding)
         self._chk_rainfall = QCheckBox("Simulación de precipitaciones")
         vl.addWidget(self._chk_rainfall)
+        self._chk_flood = QCheckBox("Simulación de inundación")
+        vl.addWidget(self._chk_flood)
         layout.addWidget(grp_anal)
 
         grp_params = QGroupBox("Parámetros")
@@ -336,9 +359,15 @@ class AnalysisDialog(QDialog):
         self._rainfall_intensity.setDecimals(1)
         self._rainfall_intensity.setSuffix(" mm/h")
         form_p.addRow("Intensidad precipitación", self._rainfall_intensity)
+        self._flood_water_height = QDoubleSpinBox()
+        self._flood_water_height.setRange(-9999.0, 99999.0)
+        self._flood_water_height.setDecimals(2)
+        self._flood_water_height.setValue(10.0)
+        self._flood_water_height.setSuffix(" m")
+        form_p.addRow("Nivel del agua (cota absoluta)", self._flood_water_height)
         layout.addWidget(grp_params)
 
-        # Botones
+        # Botones análisis hidrológico
         btn_run = QPushButton("▶ Ejecutar análisis hidrológico")
         btn_run.setObjectName("primary")
         btn_run.clicked.connect(self._run_hydrology)
@@ -446,6 +475,12 @@ class AnalysisDialog(QDialog):
             if self._chk_rainfall.isChecked():
                 result = simulate_rainfall(dtm, rainfall_mm_h=self._rainfall_intensity.value())
                 results["rainfall_runoff"] = result
+
+            if self._chk_flood.isChecked():
+                from app.processing.hydrology import simulate_flood
+                result = simulate_flood(dtm, water_height=self._flood_water_height.value())
+                results["flood_simulation"] = result
+                self.layer_manager.add_layer(result)
 
             if results:
                 self._hydro_results = results
