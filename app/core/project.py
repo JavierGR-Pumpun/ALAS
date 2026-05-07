@@ -126,6 +126,7 @@ class UserPreferences:
             "recent_files": [],
             "window_geometry": None,
             "window_state": None,
+            "session_token": None,
         }
         self._load()
 

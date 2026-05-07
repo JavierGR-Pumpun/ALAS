@@ -532,6 +532,26 @@ _TRANSLATIONS = {
     # --- Import Dialog ---
     "import.file_label": {"es": "Archivo:", "en": "File:"},
 
+    # --- Authentication ---
+    "auth.login":                       {"es": "Iniciar sesión",            "en": "Log in"},
+    "auth.register":                    {"es": "Registrarse",               "en": "Register"},
+    "auth.full_name":                   {"es": "Nombre completo",           "en": "Full name"},
+    "auth.email":                       {"es": "Correo electrónico",        "en": "Email"},
+    "auth.phone":                       {"es": "Teléfono",                  "en": "Phone"},
+    "auth.password":                    {"es": "Contraseña",                "en": "Password"},
+    "auth.confirm_password":            {"es": "Confirmar contraseña",      "en": "Confirm password"},
+    "auth.remember_me":                 {"es": "Recordarme",                "en": "Remember me"},
+    "auth.logout":                      {"es": "Cerrar sesión",             "en": "Log out"},
+    "auth.member_since":                {"es": "Miembro desde",             "en": "Member since"},
+    "auth.my_account":                  {"es": "Mi cuenta",                 "en": "My account"},
+    "auth.error_fill_all_fields":       {"es": "Por favor rellena todos los campos obligatorios.", "en": "Please fill in all required fields."},
+    "auth.error_passwords_no_match":    {"es": "Las contraseñas no coinciden.", "en": "Passwords do not match."},
+    "auth.error_password_too_short":    {"es": "La contraseña debe tener al menos 8 caracteres.", "en": "Password must be at least 8 characters."},
+    "auth.error_invalid_email":         {"es": "Formato de correo electrónico inválido.", "en": "Invalid email format."},
+    "auth.error_invalid_credentials":   {"es": "Correo o contraseña incorrectos.", "en": "Incorrect email or password."},
+    "auth.error_email_taken":           {"es": "Ya existe una cuenta con ese correo.", "en": "An account with that email already exists."},
+    "auth.error_processing_failed":     {"es": "Error de conexión. Inténtalo de nuevo.", "en": "Connection error. Please try again."},
+
     # --- Splash Screen ---
     "splash.loading_modules": {"es": "Cargando módulos...", "en": "Loading modules..."},
     "splash.ready": {"es": "Listo", "en": "Ready"},

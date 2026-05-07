@@ -108,6 +108,13 @@ def main():
     _startup_prefs = UserPreferences()
     set_language(_startup_prefs.get("language", "es"))
 
+    # --- Init DB (create tables if missing) ---
+    from app.auth.db import init_db
+    try:
+        init_db()
+    except Exception as _db_err:
+        logger.warning(f"DB init skipped: {_db_err}")
+
     # --- Splash update ---
     splash.showMessage(
         tr("splash.loading_modules"),
@@ -116,9 +123,15 @@ def main():
     )
     app.processEvents()
 
-    # --- Create main window ---
+    # --- Check saved session (skip login if token is still valid) ---
+    from app.auth.service import verify_session
+    _saved_token = _startup_prefs.get("session_token")
+    _auto_user = verify_session(_saved_token) if _saved_token else None
+    _session_token = _saved_token if _auto_user else None
+
+    # --- Create main window (shows login modal on first paint if not authed) ---
     from app.ui.main_window import MainWindow
-    window = MainWindow()
+    window = MainWindow(user=_auto_user, session_token=_session_token)
 
     splash.showMessage(
         tr("splash.ready"),

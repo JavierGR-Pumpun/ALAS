@@ -38,3 +38,6 @@ dependencies:
       - PyQt6-WebEngine==6.7.0
       - PyQt6-WebEngine-Qt6==6.7.0
       - pysheds
+      - psycopg2-binary
+      - bcrypt
+      - python-dotenv

@@ -8,10 +8,10 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QFileDialog, QMessageBox,
     QLabel, QWidget, QVBoxLayout, QApplication,
-    QTabWidget, QMenuBar, QMenu, QToolBar, QStatusBar
+    QTabWidget, QMenuBar, QMenu, QToolBar, QStatusBar, QPushButton, QDialog
 )
 from PyQt6.QtCore import Qt, QSize, QThreadPool, QTimer
-from PyQt6.QtGui import QAction, QKeySequence, QIcon
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QPainter, QFont, QColor, QPainterPath
 import numpy as np
 
 from app.core.project import Project, UserPreferences
@@ -39,8 +39,12 @@ logger = get_logger("ui.main_window")
 class MainWindow(QMainWindow):
     """ALAS main window."""
 
-    def __init__(self):
+    def __init__(self, user=None, session_token: str = None):
         super().__init__()
+
+        self._current_user = user
+        self._session_token = session_token
+        self._login_shown = False
 
         # Core objects
         self.project = Project()
@@ -294,6 +298,19 @@ class MainWindow(QMainWindow):
         act_about.triggered.connect(self._show_about)
         menu_help.addAction(act_about)
 
+        # Avatar button — far right of the menu bar
+        self._user_btn = QPushButton()
+        self._user_btn.setFixedSize(30, 30)
+        self._user_btn.setObjectName("avatarBtn")
+        self._user_btn.setToolTip(tr("auth.my_account"))
+        self._user_btn.clicked.connect(self._show_user_panel)
+        if self._current_user:
+            self._user_btn.setIcon(QIcon(self._make_avatar_pixmap(self._current_user.full_name)))
+            self._user_btn.setIconSize(QSize(26, 26))
+        else:
+            self._user_btn.setVisible(False)
+        self.menuBar().setCornerWidget(self._user_btn, Qt.Corner.TopRightCorner)
+
     # ==================================================================
     # Status Bar
     # ==================================================================
@@ -310,6 +327,27 @@ class MainWindow(QMainWindow):
 
         self._points_label = QLabel("0 " + tr("status.points"))
         self.statusBar().addPermanentWidget(self._points_label)
+
+    def _make_avatar_pixmap(self, full_name: str, size: int = 28) -> QPixmap:
+        parts = full_name.strip().split()
+        initials = (parts[0][0] + (parts[-1][0] if len(parts) > 1 else "")).upper()
+
+        px = QPixmap(size, size)
+        px.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(px)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        path = QPainterPath()
+        path.addEllipse(0, 0, size, size)
+        painter.fillPath(path, QColor("#333348"))
+
+        painter.setPen(QColor("#c0c0e0"))
+        font = QFont("Segoe UI", size // 3, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, initials)
+        painter.end()
+        return px
 
     def _update_status(self, message: str):
         self._status_label.setText(message)
@@ -1045,6 +1083,46 @@ class MainWindow(QMainWindow):
             f"<p>{tr('dialog.about_text')}</p>"
             f"<p>{tr('msg.app_info')}</p>"
         )
+
+    # --- Login gate ---
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._login_shown:
+            self._login_shown = True
+            if not self._current_user:
+                QTimer.singleShot(0, self._ensure_logged_in)
+
+    def _ensure_logged_in(self):
+        from app.ui.dialogs.login_dialog import LoginDialog
+        dlg = LoginDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            QApplication.quit()
+            return
+        self._current_user = dlg.user
+        self._session_token = dlg.session_token
+        if self._session_token:
+            self.preferences.set("session_token", self._session_token)
+        self._user_btn.setIcon(QIcon(self._make_avatar_pixmap(self._current_user.full_name)))
+        self._user_btn.setIconSize(QSize(26, 26))
+        self._user_btn.setVisible(True)
+
+    # --- User panel ---
+    def _show_user_panel(self):
+        if not self._current_user:
+            return
+        from app.ui.dialogs.user_panel import UserPanelDialog
+        panel = UserPanelDialog(self._current_user, self)
+        panel.logout_requested.connect(self._on_logout)
+        panel.exec()
+
+    def _on_logout(self):
+        from app.auth.service import logout as auth_logout
+        if self._session_token:
+            auth_logout(self._session_token)
+        self.preferences.set("session_token", None)
+        import os, sys
+        self.close()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # --- Language ---
     def _change_language(self, lang: str):

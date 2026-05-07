@@ -22,17 +22,17 @@ logger = get_logger("ui.measurements_history")
 
 # Type color map — labels resolved via tr() at call time to support language switching
 _TYPE_COLOR: Dict[str, str] = {
-    "area":      "#c0c0c0",
-    "distancia": "#c0c0c0",
-    "volumen":   "#c0c0c0",
-    "perfil":    "#c0c0c0",
+    "area":     "#c0c0c0",
+    "distance": "#c0c0c0",
+    "volume":   "#c0c0c0",
+    "profile":  "#c0c0c0",
 }
 
 _TYPE_LABEL_KEY: Dict[str, str] = {
-    "area":      "hist.area",
-    "distancia": "hist.distance",
-    "volumen":   "hist.volume",
-    "perfil":    "hist.profile",
+    "area":     "hist.area",
+    "distance": "hist.distance",
+    "volume":   "hist.volume",
+    "profile":  "hist.profile",
 }
 
 
@@ -92,61 +92,66 @@ class MeasurementEntry:
         def row(label: str, value: str, w: int) -> str:
             return f"  {label.ljust(w)}: {value}"
 
+        def verts_block(verts: list, indent: int = 5):
+            lines_out = [f"  {tr('hist.vertices')}:"]
+            for i, v in enumerate(verts[:20], 1):
+                x, y, z = v.get('x', 0), v.get('y', 0), v.get('z', 0)
+                lines_out.append(f"  {' ' * (indent - 2)}{i:2}. ({x:.3f}, {y:.3f}, {z:.3f})")
+            if len(verts) > 20:
+                lines_out.append(f"     ... {tr('hist.and_more').format(len(verts) - 20)}")
+            return lines_out
+
         if self.mtype == "area":
             W = 18
             plan_m2 = d.get('planimetric_area_m2', 0)
             lines += [
                 row(tr('hist.planimetric_area'), _fmt(plan_m2, 'm²'), W),
                 " " * (W + 4) + _fmt(plan_m2 / 10000, 'ha', 4),
-                row(tr('hist.surface_area'), _fmt(d.get('surface_area_m2', 0), 'm²') if d.get('used_raster') else tr('hist.no_dem'), W),
+                row(tr('hist.surface_area'),
+                    _fmt(d.get('surface_area_m2', 0), 'm²') if d.get('used_raster') else tr('hist.no_dem'), W),
                 row(tr('hist.perimeter_2d'), _fmt(d.get('perimeter_m', 0), 'm'), W),
                 row(tr('hist.num_vertices'), str(d.get('num_vertices', '-')), W),
-                row(tr('hist.source'), tr('hist.source_dem') if d.get('used_raster') else tr('hist.source_no_dem'), W),
+                row(tr('hist.source'),
+                    tr('hist.source_dem') if d.get('used_raster') else tr('hist.source_no_dem'), W),
             ]
             verts = d.get('vertices', [])
             if verts:
-                lines.append(f"  {tr('hist.vertices')}:")
-                for i, v in enumerate(verts[:10], 1):
-                    lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
-                if len(verts) > 10:
-                    lines.append(f"    ... {tr('hist.and_more').format(len(verts) - 10)}")
+                lines += verts_block(verts)
 
-        elif self.mtype == "distancia":
+        elif self.mtype == "distance":
             W = 14
             lines += [
                 row(tr('hist.distance_3d'), _fmt(d.get('distance_3d', 0), 'm'), W),
                 row(tr('hist.distance_2d'), _fmt(d.get('distance_2d', 0), 'm'), W),
-                row(tr('hist.dz'), _fmt(d.get('dz', 0), 'm'), W),
-                row(tr('hist.slope'), f"{_fmt(d.get('slope_degrees', 0), 'deg')} ({_fmt(d.get('slope_percent', 0), '%')})", W),
-                row(tr('hist.point_a'), f"({d.get('ax', 0):.3f}, {d.get('ay', 0):.3f}, {d.get('az', 0):.3f})", W),
-                row(tr('hist.point_b'), f"({d.get('bx', 0):.3f}, {d.get('by', 0):.3f}, {d.get('bz', 0):.3f})", W),
+                row(tr('hist.dz'),          _fmt(d.get('dz', 0), 'm'), W),
+                row(tr('hist.slope'),       f"{d.get('slope_degrees', 0):.2f}°", W),
+                row(tr('hist.point_a'),
+                    f"({d.get('ax', 0):.3f}, {d.get('ay', 0):.3f}, {d.get('az', 0):.3f})", W),
+                row(tr('hist.point_b'),
+                    f"({d.get('bx', 0):.3f}, {d.get('by', 0):.3f}, {d.get('bz', 0):.3f})", W),
             ]
 
-        elif self.mtype == "volumen":
+        elif self.mtype == "volume":
             W = 20
             lines += [
-                row(tr('hist.cut'), _fmt(d.get('cut_volume_m3', 0), 'm³'), W),
-                row(tr('hist.fill'), _fmt(d.get('fill_volume_m3', 0), 'm³'), W),
-                row(tr('hist.net'), _fmt(d.get('net_volume_m3', 0), 'm³'), W),
-                row(tr('hist.base_area'), _fmt(d.get('area_m2', 0), 'm²'), W),
-                row(tr('hist.z_ref'), _fmt(d.get('reference_z', 0), 'm'), W),
+                row(tr('hist.cut'),          _fmt(d.get('cut_volume_m3', 0), 'm³'), W),
+                row(tr('hist.fill'),         _fmt(d.get('fill_volume_m3', 0), 'm³'), W),
+                row(tr('hist.net'),          _fmt(d.get('net_volume_m3', 0), 'm³'), W),
+                row(tr('hist.base_area'),    _fmt(d.get('area_m2', 0), 'm²'), W),
+                row(tr('hist.z_ref'),        _fmt(d.get('reference_z', 0), 'm'), W),
                 row(tr('hist.num_vertices'), str(d.get('num_vertices', '-')), W),
             ]
             verts = d.get('vertices', [])
             if verts:
-                lines.append(f"  {tr('hist.vertices')}:")
-                for i, v in enumerate(verts[:10], 1):
-                    lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
-                if len(verts) > 10:
-                    lines.append(f"    ... {tr('hist.and_more').format(len(verts) - 10)}")
+                lines += verts_block(verts)
 
-        elif self.mtype == "perfil":
+        elif self.mtype == "profile":
             W = 12
             lines += [
                 row(tr('hist.length'), _fmt(d.get('length_m', 0), 'm'), W),
-                row(tr('hist.z_min'), _fmt(d.get('z_min', 0), 'm'), W),
-                row(tr('hist.z_max'), _fmt(d.get('z_max', 0), 'm'), W),
-                row(tr('hist.dz'), _fmt(d.get('dz_m', 0), 'm'), W),
+                row(tr('hist.z_min'),  _fmt(d.get('z_min', 0), 'm'), W),
+                row(tr('hist.z_max'),  _fmt(d.get('z_max', 0), 'm'), W),
+                row(tr('hist.dz'),     _fmt(d.get('dz_m', 0), 'm'), W),
             ]
 
         return "\n".join(lines)
@@ -428,14 +433,14 @@ class MeasurementsHistoryDialog(QDialog):
             }
 
             QPushButton#btn_danger {
-                background: #141414;
-                color: #664444;
-                border-color: #1e1e1e;
-            }
-            QPushButton#btn_danger:hover {
                 background: #1c1010;
                 color: #cc6666;
                 border-color: #2a1414;
+            }
+            QPushButton#btn_danger:hover {
+                background: #251515;
+                color: #d97878;
+                border-color: #321818;
             }
 
             QPushButton#btn_close {

@@ -228,13 +228,15 @@ QPushButton#primary:pressed {
 }
 
 QPushButton#danger {
-    background-color: #dc2626;
-    border-color: #ef4444;
-    color: #ffffff;
+    background-color: #1c1010;
+    border-color: #2a1414;
+    color: #cc6666;
 }
 
 QPushButton#danger:hover {
-    background-color: #ef4444;
+    background-color: #251515;
+    border-color: #321818;
+    color: #d97878;
 }
 
 /* --- Line Edit --- */
@@ -574,6 +576,27 @@ QDialog {
     background-color: #000000;
     border: 1px solid #222222;
     border-radius: 12px;
+}
+
+/* --- Avatar Button (menu bar corner) --- */
+QPushButton#avatarBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 15px;
+    padding: 1px;
+    margin: 2px 6px;
+}
+QPushButton#avatarBtn:hover {
+    background-color: #1a1a1a;
+}
+QPushButton#avatarBtn:pressed {
+    background-color: #222222;
+}
+
+/* --- Error label (login / register forms) --- */
+QLabel#errorLabel {
+    color: #e05555;
+    font-size: 12px;
 }
 
 /* --- Radio Button --- */
