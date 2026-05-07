@@ -118,14 +118,14 @@ def _run_ground_classification(pc: PointCloudData, filter_type: str,
         # Guard: fail before PDAL does
         pipeline_json.encode("ascii")
 
-        print(repr(pipeline_json[1580:1610]))
-
         pipeline = pdal.Pipeline(pipeline_json)
         count = pipeline.execute()
         logger.info(f"Classification completed: {count:,} points processed")
 
         result = PointCloudData.from_file(str(tmp_out))
         classification = result.classification
+        if classification is None:
+            raise ValueError("Classified file has no classification field")
 
         ground_count = np.sum(classification == 2)
         total = len(classification)

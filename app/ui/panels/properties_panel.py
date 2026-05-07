@@ -103,8 +103,8 @@ class PropertiesPanel(QWidget):
         form.addRow("<b>" + tr("prop.point_count") + "</b>", QLabel(f"{pc.point_count:,}"))
         form.addRow("<b>" + tr("prop.las_format") + "</b>", QLabel(f"v{pc.file_version or '?'} (format {pc.point_format or '?'})"))
         
-        lbl_sensor = QLabel(pc.system_identifier or "Not specified")
-        lbl_sensor.setToolTip("LiDAR sensor/system identifier")
+        lbl_sensor = QLabel(pc.system_identifier or tr("prop.not_specified"))
+        lbl_sensor.setToolTip(tr("prop.sensor_tooltip"))
         form.addRow("<b>" + tr("prop.sensor") + "</b>", lbl_sensor)
         
         lbl_crs = QLabel(f"{tr('crs.epsg_prefix')}{pc.crs_epsg}" if pc.crs_epsg else tr("status.no_crs"))
@@ -119,8 +119,8 @@ class PropertiesPanel(QWidget):
             form_b = QFormLayout(grp_bounds)
             w = bounds[3] - bounds[0]
             h = bounds[4] - bounds[1]
-            form_b.addRow("<b>" + tr("prop.x") + "</b>", QLabel(f"{bounds[0]:.2f} m — {bounds[3]:.2f} m (Width: {w:.2f} m)"))
-            form_b.addRow("<b>" + tr("prop.y") + "</b>", QLabel(f"{bounds[1]:.2f} m — {bounds[4]:.2f} m (Height: {h:.2f} m)"))
+            form_b.addRow("<b>" + tr("prop.x") + "</b>", QLabel(f"{bounds[0]:.2f} m — {bounds[3]:.2f} m ({tr('prop.width')}: {w:.2f} m)"))
+            form_b.addRow("<b>" + tr("prop.y") + "</b>", QLabel(f"{bounds[1]:.2f} m — {bounds[4]:.2f} m ({tr('prop.height')}: {h:.2f} m)"))
             form_b.addRow("<b>" + tr("prop.z") + "</b>", QLabel(f"{bounds[2]:.2f} m — {bounds[5]:.2f} m"))
             self._content_layout.addWidget(grp_bounds)
 
@@ -190,8 +190,8 @@ class PropertiesPanel(QWidget):
             form_b = QFormLayout(grp_bounds)
             w = bounds[2] - bounds[0]
             h = bounds[3] - bounds[1]
-            form_b.addRow("<b>" + tr("prop.x") + "</b>", QLabel(f"{bounds[0]:.2f} m — {bounds[2]:.2f} m (Width: {w:.2f} m)"))
-            form_b.addRow("<b>" + tr("prop.y") + "</b>", QLabel(f"{bounds[1]:.2f} m — {bounds[3]:.2f} m (Height: {h:.2f} m)"))
+            form_b.addRow("<b>" + tr("prop.x") + "</b>", QLabel(f"{bounds[0]:.2f} m — {bounds[2]:.2f} m ({tr('prop.width')}: {w:.2f} m)"))
+            form_b.addRow("<b>" + tr("prop.y") + "</b>", QLabel(f"{bounds[1]:.2f} m — {bounds[3]:.2f} m ({tr('prop.height')}: {h:.2f} m)"))
             self._content_layout.addWidget(grp_bounds)
 
         # --- Statistics ---

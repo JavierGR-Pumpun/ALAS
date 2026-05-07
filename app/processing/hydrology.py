@@ -361,6 +361,13 @@ def _prepare_dem(dtm: RasterLayer, conditioned: Optional[RasterLayer] = None):
     grid, path = _get_grid_and_path(source)
     dem = grid.read_raster(path)
 
+    # Clean up temp file if one was written (source has no valid on-disk path)
+    if not (source.file_path and os.path.isfile(source.file_path)):
+        try:
+            os.unlink(path)
+        except OSError:
+            logger.debug(f"Could not remove temp file: {path}")
+
     if conditioned is None:
         dem = _condition_raw(grid, dem)
 

@@ -232,6 +232,12 @@ class AnalysisDialog(QDialog):
             combo.addItem(tr("analysis.no_raster_layers"), -1)
         return combo
 
+    def _update_combos(self, *args):
+        """Refresh all raster combo boxes when layers are added or removed."""
+        for combo in (self._geo_raster, self._hydro_raster, self._veg_raster,
+                      self._multi_before, self._multi_after):
+            self._populate_combo(combo)
+
     # ------------------------------------------------------------------
     # Geomorphology Tab
     # ------------------------------------------------------------------

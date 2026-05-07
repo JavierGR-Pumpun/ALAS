@@ -1,6 +1,6 @@
 """
 ALAS — Measurements History Dialog
-Modal dialog showing the complete history of measurements made in the session.
+Modal que muestra el historial completo de medidas realizadas en la sesion.
 """
 
 from __future__ import annotations
@@ -20,13 +20,26 @@ from app.i18n import tr
 
 logger = get_logger("ui.measurements_history")
 
-# Type -> (label, row text color)
-TYPE_META: Dict[str, tuple] = {
-    "area":      (tr("hist.area"),      "#c0c0c0"),
-    "distancia": (tr("hist.distance"), "#c0c0c0"),
-    "volumen":   (tr("hist.volume"),   "#c0c0c0"),
-    "perfil":    (tr("hist.profile"),    "#c0c0c0"),
+# Type color map — labels resolved via tr() at call time to support language switching
+_TYPE_COLOR: Dict[str, str] = {
+    "area":      "#c0c0c0",
+    "distancia": "#c0c0c0",
+    "volumen":   "#c0c0c0",
+    "perfil":    "#c0c0c0",
 }
+
+_TYPE_LABEL_KEY: Dict[str, str] = {
+    "area":      "hist.area",
+    "distancia": "hist.distance",
+    "volumen":   "hist.volume",
+    "perfil":    "hist.profile",
+}
+
+
+def _get_type_meta(mtype: str) -> tuple:
+    key = _TYPE_LABEL_KEY.get(mtype, "hist.measurement")
+    color = _TYPE_COLOR.get(mtype, "#c0c0c0")
+    return tr(key), color
 
 
 def _fmt(value: float, unit: str = "", decimals: int = 2) -> str:
@@ -34,7 +47,7 @@ def _fmt(value: float, unit: str = "", decimals: int = 2) -> str:
 
 
 class MeasurementEntry:
-    """Encapsulates a stored measurement."""
+    """Encapsula una medida almacenada."""
 
     _counter = 0
 
@@ -51,7 +64,7 @@ class MeasurementEntry:
 
     @property
     def type_label(self) -> str:
-        label, _ = TYPE_META.get(self.mtype, (tr("hist.measurement"), "#c0c0c0"))
+        label, _ = _get_type_meta(self.mtype)
         return label
 
     @property
@@ -75,14 +88,20 @@ class MeasurementEntry:
             sep,
         ]
         d = self.data
+
+        def row(label: str, value: str, w: int) -> str:
+            return f"  {label.ljust(w)}: {value}"
+
         if self.mtype == "area":
+            W = 18
+            plan_m2 = d.get('planimetric_area_m2', 0)
             lines += [
-                f"  {tr('hist.planimetric_area')} : {_fmt(d.get('planimetric_area_m2', 0), 'm²')}",
-                f"                      {_fmt(d.get('planimetric_area_m2', 0) / 10000, 'ha', 4)}",
-                f"  {tr('hist.surface_area')}  : {_fmt(d.get('surface_area_m2', 0), 'm²') if d.get('used_raster') else tr('hist.without_dem')}",
-                f"  {tr('hist.perimeter_2d')}      : {_fmt(d.get('perimeter_m', 0), 'm')}",
-                f"  {tr('hist.num_vertices')}     : {d.get('num_vertices', '-')}",
-                f"  {tr('hist.source')}            : {tr('hist.source_dem') if d.get('used_raster') else tr('hist.source_no_dem')}",
+                row(tr('hist.planimetric_area'), _fmt(plan_m2, 'm²'), W),
+                " " * (W + 4) + _fmt(plan_m2 / 10000, 'ha', 4),
+                row(tr('hist.surface_area'), _fmt(d.get('surface_area_m2', 0), 'm²') if d.get('used_raster') else tr('hist.no_dem'), W),
+                row(tr('hist.perimeter_2d'), _fmt(d.get('perimeter_m', 0), 'm'), W),
+                row(tr('hist.num_vertices'), str(d.get('num_vertices', '-')), W),
+                row(tr('hist.source'), tr('hist.source_dem') if d.get('used_raster') else tr('hist.source_no_dem'), W),
             ]
             verts = d.get('vertices', [])
             if verts:
@@ -91,24 +110,27 @@ class MeasurementEntry:
                     lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
                 if len(verts) > 10:
                     lines.append(f"    ... {tr('hist.and_more').format(len(verts) - 10)}")
+
         elif self.mtype == "distancia":
+            W = 14
             lines += [
-                f"  {tr('hist.distance_3d')}  : {_fmt(d.get('distance_3d', 0), 'm')}",
-                f"  {tr('hist.distance_2d')}  : {_fmt(d.get('distance_2d', 0), 'm')}",
-                f"  {tr('hist.dz')} : {_fmt(d.get('dz', 0), 'm')}",
-                f"  {tr('hist.slope')}     : {_fmt(d.get('slope_degrees', 0), 'deg')} "
-                f"({_fmt(d.get('slope_percent', 0), '%')})",
-                f"  {tr('hist.point_a')}       : ({d.get('ax', 0):.3f}, {d.get('ay', 0):.3f}, {d.get('az', 0):.3f})",
-                f"  {tr('hist.point_b')}       : ({d.get('bx', 0):.3f}, {d.get('by', 0):.3f}, {d.get('bz', 0):.3f})",
+                row(tr('hist.distance_3d'), _fmt(d.get('distance_3d', 0), 'm'), W),
+                row(tr('hist.distance_2d'), _fmt(d.get('distance_2d', 0), 'm'), W),
+                row(tr('hist.dz'), _fmt(d.get('dz', 0), 'm'), W),
+                row(tr('hist.slope'), f"{_fmt(d.get('slope_degrees', 0), 'deg')} ({_fmt(d.get('slope_percent', 0), '%')})", W),
+                row(tr('hist.point_a'), f"({d.get('ax', 0):.3f}, {d.get('ay', 0):.3f}, {d.get('az', 0):.3f})", W),
+                row(tr('hist.point_b'), f"({d.get('bx', 0):.3f}, {d.get('by', 0):.3f}, {d.get('bz', 0):.3f})", W),
             ]
+
         elif self.mtype == "volumen":
+            W = 20
             lines += [
-                f"  {tr('hist.cut')}    : {_fmt(d.get('cut_volume_m3', 0), 'm³')}",
-                f"  {tr('hist.fill')}  : {_fmt(d.get('fill_volume_m3', 0), 'm³')}",
-                f"  {tr('hist.net')}     : {_fmt(d.get('net_volume_m3', 0), 'm³')}",
-                f"  {tr('hist.base_area')}: {_fmt(d.get('area_m2', 0), 'm²')}",
-                f"  {tr('hist.z_ref')}   : {_fmt(d.get('reference_z', 0), 'm')}",
-                f"  {tr('hist.num_vertices')} : {d.get('num_vertices', '-')}",
+                row(tr('hist.cut'), _fmt(d.get('cut_volume_m3', 0), 'm³'), W),
+                row(tr('hist.fill'), _fmt(d.get('fill_volume_m3', 0), 'm³'), W),
+                row(tr('hist.net'), _fmt(d.get('net_volume_m3', 0), 'm³'), W),
+                row(tr('hist.base_area'), _fmt(d.get('area_m2', 0), 'm²'), W),
+                row(tr('hist.z_ref'), _fmt(d.get('reference_z', 0), 'm'), W),
+                row(tr('hist.num_vertices'), str(d.get('num_vertices', '-')), W),
             ]
             verts = d.get('vertices', [])
             if verts:
@@ -117,20 +139,23 @@ class MeasurementEntry:
                     lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
                 if len(verts) > 10:
                     lines.append(f"    ... {tr('hist.and_more').format(len(verts) - 10)}")
+
         elif self.mtype == "perfil":
+            W = 12
             lines += [
-                f"  {tr('hist.length')} : {_fmt(d.get('length_m', 0), 'm')}",
-                f"  {tr('hist.z_min')}    : {_fmt(d.get('z_min', 0), 'm')}",
-                f"  {tr('hist.z_max')}    : {_fmt(d.get('z_max', 0), 'm')}",
-                f"  {tr('hist.dz')}       : {_fmt(d.get('dz_m', 0), 'm')}",
+                row(tr('hist.length'), _fmt(d.get('length_m', 0), 'm'), W),
+                row(tr('hist.z_min'), _fmt(d.get('z_min', 0), 'm'), W),
+                row(tr('hist.z_max'), _fmt(d.get('z_max', 0), 'm'), W),
+                row(tr('hist.dz'), _fmt(d.get('dz_m', 0), 'm'), W),
             ]
+
         return "\n".join(lines)
 
 
 class MeasurementsHistoryDialog(QDialog):
     """
-    Non-blocking modal dialog with the session measurement history.
-    Hides on close, never destroyed.
+    Modal no bloqueante con el historial de medidas de la sesion.
+    Se oculta al cerrar, nunca se destruye.
     """
 
     def __init__(self, parent=None):
@@ -187,7 +212,10 @@ class MeasurementsHistoryDialog(QDialog):
         left_layout.addWidget(col_header)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels([tr("hist.col_id"), tr("hist.col_time"), tr("hist.col_type"), tr("hist.col_result")])
+        self._table.setHorizontalHeaderLabels([
+            tr("hist.col_id"), tr("hist.col_time"),
+            tr("hist.col_type"), tr("hist.col_result"),
+        ])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -200,9 +228,7 @@ class MeasurementsHistoryDialog(QDialog):
         self._table.selectionModel().selectionChanged.connect(self._on_selection)
         left_layout.addWidget(self._table)
 
-        self._empty_label = QLabel(
-            tr("hist.empty_message")
-        )
+        self._empty_label = QLabel(tr("hist.empty_message"))
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setObjectName("empty_label")
         left_layout.addWidget(self._empty_label)
@@ -263,7 +289,7 @@ class MeasurementsHistoryDialog(QDialog):
             QDialog {
                 background: #0a0a0a;
                 color: #d0d0d0;
-                font-family: 'SF Pro Display', 'Segoe UI', 'Ubuntu', 'Helvetica Neue', sans-serif;
+                font-family: 'Segoe UI', sans-serif;
                 font-size: 13px;
             }
 
@@ -432,7 +458,7 @@ class MeasurementsHistoryDialog(QDialog):
         self._entries.append(entry)
         self._add_row(entry)
         self._update_counter()
-        logger.debug(f"Measurement #{entry.id} ({mtype}) saved to history")
+        logger.debug(f"Medida #{entry.id} ({mtype}) guardada en historial")
         return entry
 
     def show_and_raise(self):
@@ -449,7 +475,7 @@ class MeasurementsHistoryDialog(QDialog):
         self._table.insertRow(row)
         self._table.setRowHeight(row, 34)
 
-        _, fg_hex = TYPE_META.get(entry.mtype, (tr("hist.measurement"), "#c0c0c0"))
+        _, fg_hex = _get_type_meta(entry.mtype)
         fg = QColor(fg_hex)
         bg = QColor("#0e0e0e")
 
@@ -473,7 +499,10 @@ class MeasurementsHistoryDialog(QDialog):
 
     def _update_counter(self):
         n = len(self._entries)
-        self._count_label.setText(tr("hist.count").format(n))
+        if n == 1:
+            self._count_label.setText(tr("hist.count_one"))
+        else:
+            self._count_label.setText(tr("hist.count").format(n))
 
     def _on_selection(self):
         rows = self._table.selectionModel().selectedRows()

@@ -46,13 +46,13 @@ _TRANSLATIONS = {
     "action.geomorphology": {"es": "Análisis geomorfológico...", "en": "Geomorphological analysis..."},
     "action.hydrology": {"es": "Análisis hidrológico...", "en": "Hydrological analysis..."},
     "action.vegetation": {"es": "Análisis de vegetación...", "en": "Vegetation analysis..."},
-    "action.measurements": {"es": "Mediciones...", "en": "Measurements..."},
+    "action.measurements": {"es": "Historial de mediciones", "en": "Measurements history"},
     "action.multitemporal": {"es": "Análisis multitemporal...", "en": "Multitemporal analysis..."},
 
     # --- Tools ---
     "action.profile": {"es": "Perfil topográfico", "en": "Topographic profile"},
     "action.distance": {"es": "Medir distancia", "en": "Measure distance"},
-    "action.area": {"es": "Medir área", "en": "Measure area"},
+    "action.area": {"es": "Calcular área", "en": "Calculate area"},
     "action.volume": {"es": "Calcular volumen", "en": "Calculate volume"},
 
     # --- Panels ---
@@ -199,7 +199,7 @@ _TRANSLATIONS = {
     "export.pdf_report": {"es": "Informe PDF", "en": "PDF Report"},
     "export.generate_pdf": {"es": "Generar informe PDF con estadísticas", "en": "Generate PDF report with statistics"},
     "export.title": {"es": "Título", "en": "Title"},
-    "export.button": {"es": "💾 Exportar", "en": "💾 Export"},
+    "export.button": {"es": "Exportar", "en": "Export"},
     "export.success": {"es": "Exportado", "en": "Exported"},
 
     # --- CRS Dialog ---
@@ -250,7 +250,7 @@ _TRANSLATIONS = {
     "analysis.morpho_class": {"es": "Clasificación morfométrica", "en": "Morphometric classification"},
     "analysis.azimuth": {"es": "Acimut", "en": "Azimuth"},
     "analysis.altitude": {"es": "Altitud", "en": "Altitude"},
-    "analysis.execute_geomorph": {"es": "▶ Ejecutar análisis geomorfológico", "en": "▶ Execute geomorphological analysis"},
+    "analysis.execute_geomorph": {"es": "Ejecutar análisis geomorfológico", "en": "Execute geomorphological analysis"},
     "analysis.completed_geomorph": {"es": "Análisis geomorfológico completado.", "en": "Geomorphological analysis completed."},
     "analysis.input_raster_chm": {"es": "Ráster de entrada (MCA)", "en": "Input raster (CHM)"},
     "analysis.chm": {"es": "MCA", "en": "CHM"},
@@ -262,7 +262,7 @@ _TRANSLATIONS = {
     "analysis.detect_trees": {"es": "Detectar árboles individuales", "en": "Detect individual trees"},
     "analysis.segment_crowns": {"es": "Segmentar copas (cuenca)", "en": "Segment crowns (watershed)"},
     "analysis.density_map": {"es": "Mapa de densidad", "en": "Density map"},
-    "analysis.execute_veg": {"es": "▶ Ejecutar análisis de vegetación", "en": "▶ Execute vegetation analysis"},
+    "analysis.execute_veg": {"es": "Ejecutar análisis de vegetación", "en": "Execute vegetation analysis"},
     "analysis.completed_veg": {"es": "Análisis de vegetación completado.", "en": "Vegetation analysis completed."},
     "analysis.trees_detected": {"es": "Árboles detectados: {}", "en": "Trees detected: {}"},
     "analysis.input_rasters": {"es": "Rásters de entrada", "en": "Input rasters"},
@@ -272,7 +272,7 @@ _TRANSLATIONS = {
     "analysis.dod": {"es": "Diferencia de MDE (DoD)", "en": "DEM difference (DoD)"},
     "analysis.classify_changes": {"es": "Clasificar cambios", "en": "Classify changes"},
     "analysis.detect_deforest": {"es": "Detectar deforestación (requiere MCA)", "en": "Detect deforestation (requires CHMs)"},
-    "analysis.execute_multi": {"es": "▶ Ejecutar análisis multitemporal", "en": "▶ Execute multitemporal analysis"},
+    "analysis.execute_multi": {"es": "Ejecutar análisis multitemporal", "en": "Execute multitemporal analysis"},
     "analysis.completed_multi": {"es": "Análisis multitemporal completado.", "en": "Multitemporal analysis completed."},
     "analysis.warning_select_dem": {"es": "Seleccione un MDE primero.", "en": "Select a DEM first."},
     "analysis.warning_select_chm": {"es": "Seleccione un MCA primero.", "en": "Select a CHM first."},
@@ -531,6 +531,70 @@ _TRANSLATIONS = {
 
     # --- Import Dialog ---
     "import.file_label": {"es": "Archivo:", "en": "File:"},
+
+    # --- Splash Screen ---
+    "splash.loading_modules": {"es": "Cargando módulos...", "en": "Loading modules..."},
+    "splash.ready": {"es": "Listo", "en": "Ready"},
+
+    # --- Properties Panel ---
+    "prop.classification": {"es": "Clasificación", "en": "Classification"},
+    "prop.sensor_tooltip": {"es": "Identificador del sensor/sistema LiDAR", "en": "LiDAR sensor/system identifier"},
+    "prop.not_specified": {"es": "No especificado", "en": "Not specified"},
+    "prop.width": {"es": "Ancho", "en": "Width"},
+    "prop.height": {"es": "Alto", "en": "Height"},
+
+    # --- About Dialog ---
+    "dialog.about_stack": {"es": "Python • PyQt6 • PyVista • PDAL • rasterio • richdem • pysheds", "en": "Python • PyQt6 • PyVista • PDAL • rasterio • richdem • pysheds"},
+
+    # --- Measurements History Dialog ---
+    "hist.title": {"es": "Historial de mediciones", "en": "Measurements History"},
+    "hist.area": {"es": "Área", "en": "Area"},
+    "hist.distance": {"es": "Distancia", "en": "Distance"},
+    "hist.volume": {"es": "Volumen", "en": "Volume"},
+    "hist.profile": {"es": "Perfil", "en": "Profile"},
+    "hist.measurement": {"es": "Medición", "en": "Measurement"},
+    "hist.planimetric_area": {"es": "Área planimétrica", "en": "Planimetric area"},
+    "hist.surface_area": {"es": "Área superficial", "en": "Surface area"},
+    "hist.perimeter_2d": {"es": "Perímetro 2D", "en": "2D Perimeter"},
+    "hist.num_vertices": {"es": "Núm. vértices", "en": "Num. vertices"},
+    "hist.source": {"es": "Fuente", "en": "Source"},
+    "hist.no_dem": {"es": "— (sin MDE)", "en": "— (no DEM)"},
+    "hist.source_dem": {"es": "MDE", "en": "DEM"},
+    "hist.source_no_dem": {"es": "Shoelace (sin MDE)", "en": "Shoelace (no DEM)"},
+    "hist.vertices": {"es": "Vértices", "en": "Vertices"},
+    "hist.and_more": {"es": "y {} más...", "en": "and {} more..."},
+    "hist.distance_3d": {"es": "Distancia 3D", "en": "3D Distance"},
+    "hist.distance_2d": {"es": "Distancia 2D", "en": "2D Distance"},
+    "hist.dz": {"es": "Diferencia Z", "en": "Z Difference"},
+    "hist.slope": {"es": "Pendiente", "en": "Slope"},
+    "hist.point_a": {"es": "Punto A", "en": "Point A"},
+    "hist.point_b": {"es": "Punto B", "en": "Point B"},
+    "hist.cut": {"es": "Corte (Excavación)", "en": "Cut (Excavation)"},
+    "hist.fill": {"es": "Relleno (Terraplén)", "en": "Fill (Embankment)"},
+    "hist.net": {"es": "Neto", "en": "Net"},
+    "hist.base_area": {"es": "Área base", "en": "Base area"},
+    "hist.z_ref": {"es": "Z referencia", "en": "Z Reference"},
+    "hist.length": {"es": "Longitud", "en": "Length"},
+    "hist.z_min": {"es": "Z mínimo", "en": "Z Minimum"},
+    "hist.z_max": {"es": "Z máximo", "en": "Z Maximum"},
+    "hist.count_zero": {"es": "0 mediciones", "en": "0 measurements"},
+    "hist.count_one": {"es": "1 medición", "en": "1 measurement"},
+    "hist.count": {"es": "{} mediciones", "en": "{} measurements"},
+    "hist.measurements": {"es": "MEDICIONES", "en": "MEASUREMENTS"},
+    "hist.col_id": {"es": "#", "en": "#"},
+    "hist.col_time": {"es": "HORA", "en": "TIME"},
+    "hist.col_type": {"es": "TIPO", "en": "TYPE"},
+    "hist.col_result": {"es": "RESULTADO", "en": "RESULT"},
+    "hist.empty_message": {"es": "Aún no hay mediciones registradas.\nUse las herramientas de perfil, distancia, área o volumen.", "en": "No measurements recorded yet.\nUse the profile, distance, area, or volume tools."},
+    "hist.detail": {"es": "DETALLE", "en": "DETAIL"},
+    "hist.placeholder": {"es": "Seleccione una medición para ver los detalles", "en": "Select a measurement to view details"},
+    "hist.copy_detail": {"es": "Copiar detalle", "en": "Copy detail"},
+    "hist.copy_all": {"es": "Copiar todo", "en": "Copy all"},
+    "hist.clear_history": {"es": "Limpiar historial", "en": "Clear history"},
+    "hist.copied_title": {"es": "Copiado", "en": "Copied"},
+    "hist.copied_message": {"es": "Historial copiado ({} entradas).", "en": "History copied ({} entries)."},
+    "hist.clear_confirm_title": {"es": "Confirmar", "en": "Confirm"},
+    "hist.clear_confirm_message": {"es": "¿Eliminar {} mediciones del historial?", "en": "Delete {} measurements from history?"},
 }
 
 # ---------------------------------------------------------------------------

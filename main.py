@@ -102,9 +102,15 @@ def main():
     from app.logger import setup_logging
     logger = setup_logging()
 
+    # --- Apply saved language before any tr() calls ---
+    from app.core.project import UserPreferences
+    from app.i18n import set_language, tr
+    _startup_prefs = UserPreferences()
+    set_language(_startup_prefs.get("language", "es"))
+
     # --- Splash update ---
     splash.showMessage(
-        "Cargando módulos...",
+        tr("splash.loading_modules"),
         Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
         QColor("#c0c0d0")
     )
@@ -115,7 +121,7 @@ def main():
     window = MainWindow()
 
     splash.showMessage(
-        "Listo",
+        tr("splash.ready"),
         Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
         QColor("#555555")
     )

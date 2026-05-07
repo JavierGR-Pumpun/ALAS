@@ -38,7 +38,7 @@ class AboutDialog(QDialog):
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(desc)
 
-        stack = QLabel("Python • PyQt6 • PyVista • PDAL • rasterio • richdem • pysheds")
+        stack = QLabel(tr("dialog.about_stack"))
         stack.setObjectName("muted")
         stack.setAlignment(Qt.AlignmentFlag.AlignCenter)
         stack.setWordWrap(True)
