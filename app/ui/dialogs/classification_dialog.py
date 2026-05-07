@@ -4,23 +4,26 @@ Dialog to configure and execute terrain classification.
 """
 
 import numpy as np
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
     QComboBox, QDoubleSpinBox, QSpinBox, QPushButton, QLabel,
-    QMessageBox
+    QMessageBox, QLineEdit, QFileDialog, QCheckBox, QApplication
 )
 from PyQt6.QtCore import Qt
 
 from app.core.point_cloud import PointCloudData
 from app.processing.classification import (
     classify_ground_smrf, classify_ground_csf, classify_ground_pmf,
-    classify_above_ground
+    classify_above_ground, classify_ai,
 )
-from app.config import SMRF_DEFAULTS, CSF_DEFAULTS, PMF_DEFAULTS
+from app.config import SMRF_DEFAULTS, CSF_DEFAULTS, PMF_DEFAULTS, MODELS_DIR
 from app.i18n import tr
 from app.logger import get_logger
 
 logger = get_logger("ui.classification_dialog")
+
+_DEFAULT_MODEL = str(MODELS_DIR / "classifier_best.pt")
 
 
 class ClassificationDialog(QDialog):
@@ -48,13 +51,14 @@ class ClassificationDialog(QDialog):
 
         self._algo_combo = QComboBox()
         self._algo_combo.addItem(tr("classify.smrf"), "smrf")
-        self._algo_combo.addItem(tr("classify.csf"), "csf")
-        self._algo_combo.addItem(tr("classify.pmf"), "pmf")
+        self._algo_combo.addItem(tr("classify.csf"),  "csf")
+        self._algo_combo.addItem(tr("classify.pmf"),  "pmf")
+        self._algo_combo.addItem(tr("classify.ai"),   "ai")
         self._algo_combo.currentIndexChanged.connect(self._on_algo_changed)
         form_algo.addRow(tr("classify.algorithm"), self._algo_combo)
         layout.addWidget(grp_algo)
 
-        # SMRF parameters
+        # ── SMRF parameters ───────────────────────────────────────────────
         self._grp_smrf = QGroupBox(tr("classify.smrf_params"))
         form_smrf = QFormLayout(self._grp_smrf)
 
@@ -79,7 +83,7 @@ class ClassificationDialog(QDialog):
 
         layout.addWidget(self._grp_smrf)
 
-        # CSF parameters
+        # ── CSF parameters ────────────────────────────────────────────────
         self._grp_csf = QGroupBox(tr("classify.csf_params"))
         form_csf = QFormLayout(self._grp_csf)
 
@@ -103,7 +107,7 @@ class ClassificationDialog(QDialog):
         layout.addWidget(self._grp_csf)
         self._grp_csf.hide()
 
-        # PMF parameters
+        # ── PMF parameters ────────────────────────────────────────────────
         self._grp_pmf = QGroupBox(tr("classify.pmf_params"))
         form_pmf = QFormLayout(self._grp_pmf)
 
@@ -120,13 +124,50 @@ class ClassificationDialog(QDialog):
         layout.addWidget(self._grp_pmf)
         self._grp_pmf.hide()
 
-        # Classify above ground checkbox
-        from PyQt6.QtWidgets import QCheckBox
+        # ── AI parameters ─────────────────────────────────────────────────
+        self._grp_ai = QGroupBox(tr("classify.ai_params"))
+        form_ai = QFormLayout(self._grp_ai)
+
+        # Model path row: line edit + browse button
+        path_row = QHBoxLayout()
+        self._ai_model_path = QLineEdit()
+        self._ai_model_path.setPlaceholderText(_DEFAULT_MODEL)
+        if Path(_DEFAULT_MODEL).exists():
+            self._ai_model_path.setText(_DEFAULT_MODEL)
+        path_row.addWidget(self._ai_model_path)
+
+        btn_browse = QPushButton(tr("classify.browse"))
+        btn_browse.setFixedWidth(90)
+        btn_browse.clicked.connect(self._browse_model)
+        path_row.addWidget(btn_browse)
+
+        path_widget = QLabel()  # dummy widget to host the layout in the form
+        path_widget.setLayout(path_row)
+        path_widget.setContentsMargins(0, 0, 0, 0)
+        form_ai.addRow(tr("classify.model_path"), path_widget)
+
+        self._ai_batch_size = QSpinBox()
+        self._ai_batch_size.setRange(1024, 1_048_576)
+        self._ai_batch_size.setValue(65536)
+        self._ai_batch_size.setSingleStep(8192)
+        form_ai.addRow(tr("classify.batch_size"), self._ai_batch_size)
+
+        ai_info = QLabel(tr("classify.ai_info"))
+        ai_info.setObjectName("muted")
+        ai_info.setWordWrap(True)
+        form_ai.addRow("", ai_info)
+
+        layout.addWidget(self._grp_ai)
+        self._grp_ai.hide()
+
+        # ── Post-processing checkbox ──────────────────────────────────────
         self._classify_above = QCheckBox(tr("classify.classify_veg"))
         self._classify_above.setChecked(True)
         layout.addWidget(self._classify_above)
 
-        # Buttons
+        layout.addStretch()
+
+        # ── Buttons ───────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
@@ -145,14 +186,30 @@ class ClassificationDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
-    def _on_algo_changed(self, index: int):
+    # ------------------------------------------------------------------
+
+    def _on_algo_changed(self, _index: int):
         algo = self._algo_combo.currentData()
         self._grp_smrf.setVisible(algo == "smrf")
         self._grp_csf.setVisible(algo == "csf")
         self._grp_pmf.setVisible(algo == "pmf")
+        self._grp_ai.setVisible(algo == "ai")
+        # AI handles all classes itself — post-ground step is irrelevant
+        self._classify_above.setVisible(algo != "ai")
+        self.adjustSize()
+
+    def _browse_model(self):
+        start_dir = str(MODELS_DIR) if MODELS_DIR.exists() else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("classify.model_path"), start_dir,
+            "PyTorch model (*.pt *.pth);;All files (*)"
+        )
+        if path:
+            self._ai_model_path.setText(path)
 
     def _run_classification(self):
         algo = self._algo_combo.currentData()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             if algo == "smrf":
                 self._result = classify_ground_smrf(
@@ -174,29 +231,50 @@ class ClassificationDialog(QDialog):
                     max_window_size=self._pmf_max_window.value(),
                     slope=self._pmf_slope.value(),
                 )
+            elif algo == "ai":
+                model_path = self._ai_model_path.text().strip()
+                if not model_path:
+                    model_path = _DEFAULT_MODEL
+                if not Path(model_path).exists():
+                    QApplication.restoreOverrideCursor()
+                    QMessageBox.critical(
+                        self, tr("error.processing_failed"),
+                        f"{tr('classify.model_not_found')}\n{model_path}"
+                    )
+                    return
+                self._result = classify_ai(
+                    self.pc,
+                    model_path=model_path,
+                    batch_size=self._ai_batch_size.value(),
+                )
 
-            # Classify above ground
-            if self._classify_above.isChecked() and self._result is not None:
+            # Post-ground vegetation/building classification (SMRF/CSF/PMF only)
+            if algo != "ai" and self._classify_above.isChecked() and self._result is not None:
                 self.pc.classification = self._result
                 self._result = classify_above_ground(self.pc)
 
             self.accept()
 
+        except ImportError as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, tr("error.processing_failed"), tr("classify.error_torch"))
         except Exception as e:
+            QApplication.restoreOverrideCursor()
             QMessageBox.critical(self, tr("error.processing_failed"), str(e))
+        else:
+            QApplication.restoreOverrideCursor()
 
     def _clear_classification(self):
-        """Clears classification, setting all points as unclassified (class 1)."""
         if self.pc.classification is None:
             QMessageBox.information(self, tr("dialog.confirm"), tr("classify.info_no_class"))
             return
         reply = QMessageBox.question(
-            self, tr("classify.confirm_clear"), 
+            self, tr("classify.confirm_clear"),
             tr("classify.confirm_msg"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self.pc.classification[:] = 1 
+            self.pc.classification[:] = 1
             self._result = self.pc.classification.copy()
             self.accept()
 

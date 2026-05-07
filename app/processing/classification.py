@@ -197,6 +197,128 @@ def classify_above_ground(pc: PointCloudData) -> np.ndarray:
     return classification
 
 
+# Model output index → ASPRS LAS class code (from checkpoint config class_mapping inverse)
+_AI_CLASS_TO_ASPRS = {0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7}
+_AI_CLASS_NAMES    = ["Ground", "Low Veg", "Med Veg", "High Veg", "Building", "Noise"]
+
+
+def _build_ai_model(cfg: dict):
+    """Reconstruct the PointNet encoder-decoder from checkpoint config."""
+    import torch.nn as nn
+
+    num_features = cfg.get("num_features", 6)
+    num_classes  = cfg.get("num_classes",  6)
+    latent_dim   = cfg.get("latent_dim",   256)
+
+    class _ConvBlock(nn.Module):
+        def __init__(self, in_ch, out_ch):
+            super().__init__()
+            self.block = nn.Sequential(
+                nn.Conv1d(in_ch, out_ch, 1),
+                nn.BatchNorm1d(out_ch, track_running_stats=False),
+                nn.ReLU(inplace=True),
+            )
+        def forward(self, x):
+            return self.block(x)
+
+    class _PointNetClassifier(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = nn.ModuleList([
+                _ConvBlock(num_features, 64),
+                _ConvBlock(64, 128),
+                _ConvBlock(128, latent_dim),
+            ])
+            self.decoder = nn.ModuleList([
+                _ConvBlock(latent_dim * 2, latent_dim),
+                _ConvBlock(latent_dim, 128),
+                _ConvBlock(128, 64),
+                nn.Conv1d(64, num_classes, 1),
+            ])
+
+        def forward(self, x):          # x: (B, num_features, N)
+            for enc in self.encoder:
+                x = enc(x)             # → (B, latent_dim, N)
+            # Global context: max-pool over points, expand back
+            g = x.max(dim=2, keepdim=True)[0].expand(-1, -1, x.shape[2])
+            x = torch.cat([x, g], dim=1)   # (B, latent_dim*2, N)
+            for dec in self.decoder:
+                x = dec(x)
+            return x                   # (B, num_classes, N)
+
+    return _PointNetClassifier()
+
+
+def classify_ai(pc: PointCloudData, model_path: str,
+                batch_size: int = 65536) -> np.ndarray:
+    """
+    Full-scene AI classification using classifier_best.pt.
+
+    Input features (6, per-point, normalized to [0,1]):
+        x, y, z, intensity, return_number, number_of_returns
+    Output: ASPRS codes 2–7 (Ground / Lo-Med-Hi Veg / Building / Noise).
+    """
+    try:
+        import torch
+    except ImportError:
+        raise ImportError(
+            "PyTorch is required for AI classification. Install with: pip install torch"
+        )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"AI classification — device: {device}")
+
+    model_file = Path(model_path)
+    if not model_file.exists():
+        raise FileNotFoundError(f"Model not found: {model_path}")
+
+    ckpt  = torch.load(str(model_file), map_location=device, weights_only=False)
+    cfg   = ckpt.get("config", {})
+    model = _build_ai_model(cfg)
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    model.to(device).eval()
+    logger.info(f"Model loaded — epoch {ckpt.get('epoch')}, val_f1 {ckpt.get('val_f1')}")
+
+    n = pc.point_count
+
+    # ── Feature extraction ─────────────────────────────────────────────────
+    xyz = pc.xyz.astype(np.float32)
+    xyz_norm = (xyz - xyz.min(axis=0)) / np.maximum(xyz.max(axis=0) - xyz.min(axis=0), 1e-8)
+
+    intens  = (pc.intensity.astype(np.float32) / 65535.0
+               if pc.intensity is not None else np.zeros(n, np.float32))
+    ret_num = (pc.return_number.astype(np.float32) / 7.0
+               if pc.return_number is not None else np.full(n, 1/7, np.float32))
+    num_ret = (pc.number_of_returns.astype(np.float32) / 7.0
+               if pc.number_of_returns is not None else np.full(n, 1/7, np.float32))
+
+    # (N, 6) — will be transposed to (6, N) per batch
+    features = np.column_stack([xyz_norm, intens, ret_num, num_ret])
+
+    # ── Batch inference ────────────────────────────────────────────────────
+    raw_preds = np.zeros(n, dtype=np.int64)
+    with torch.no_grad():
+        for start in range(0, n, batch_size):
+            end   = min(start + batch_size, n)
+            chunk = features[start:end]                         # (chunk_n, 6)
+            # Conv1d expects (B, C, L) → (1, 6, chunk_n)
+            x     = torch.tensor(chunk.T[np.newaxis], dtype=torch.float32).to(device)
+            out   = model(x)                                    # (1, 6, chunk_n)
+            raw_preds[start:end] = out.squeeze(0).argmax(dim=0).cpu().numpy()
+            if end % (batch_size * 10) == 0 or end == n:
+                logger.info(f"  {end:,}/{n:,} points ({end / n * 100:.0f}%)")
+
+    # ── Map model classes → ASPRS codes ────────────────────────────────────
+    classification = np.ones(n, dtype=np.uint8)
+    for model_cls, asprs in _AI_CLASS_TO_ASPRS.items():
+        mask = raw_preds == model_cls
+        classification[mask] = asprs
+        count = int(mask.sum())
+        logger.info(f"  {_AI_CLASS_NAMES[model_cls]}: {count:,} ({count / n * 100:.1f}%)")
+
+    return classification
+
+
 def manual_reclassify(pc: PointCloudData, indices: np.ndarray,
                       new_class: int) -> np.ndarray:
     """Manually reclassifies a set of points."""

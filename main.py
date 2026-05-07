@@ -5,13 +5,21 @@ Main entry point of the application.
 conda env create -f environment.yml || conda env update -f environment.yml; conda run -n alas python main.py
 """
 import os
+import sys
+from pathlib import Path
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"   # prevent MKL/OpenMP conflict on Windows with conda+torch
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PDAL_DRIVER_PATH"] = ""   # force PDAL to not search for plugins with non-ASCII paths
 os.environ["LC_ALL"] = "C"            # pure ASCII locale — works on Mac, Linux and WSL
 os.environ["LANG"] = "C"
 
-import sys
-from pathlib import Path
+# On Windows, conda DLLs (including torch's shm.dll dependencies) need Library\bin in PATH.
+# This is normally set by `conda activate`, but IDEs and `conda run` may skip it.
+if sys.platform == "win32":
+    _lib_bin = Path(sys.executable).parent.parent / "Library" / "bin"
+    if _lib_bin.exists():
+        os.environ["PATH"] = str(_lib_bin) + os.pathsep + os.environ.get("PATH", "")
 
 # Ensure the root directory is in the path
 ROOT_DIR = Path(__file__).resolve().parent

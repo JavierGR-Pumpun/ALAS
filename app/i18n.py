@@ -304,6 +304,14 @@ _TRANSLATIONS = {
     "classify.confirm_clear": {"es": "Confirmar", "en": "Confirm"},
     "classify.confirm_msg": {"es": "¿Está seguro de que desea limpiar la clasificación? Esto establecerá todos los puntos como no clasificados.", "en": "Are you sure you want to clear the classification? This will set all points as unclassified."},
     "classify.cloud_info": {"es": "Nube:", "en": "Cloud:"},
+    "classify.ai":              {"es": "IA (Red Neuronal)",               "en": "AI (Neural Network)"},
+    "classify.ai_params":       {"es": "Parámetros del modelo IA",        "en": "AI Model Parameters"},
+    "classify.model_path":      {"es": "Archivo del modelo (.pt)",        "en": "Model file (.pt)"},
+    "classify.browse":          {"es": "Explorar...",                     "en": "Browse..."},
+    "classify.batch_size":      {"es": "Tamaño de lote",                  "en": "Batch size"},
+    "classify.ai_info":         {"es": "Clasifica todos los puntos: Suelo, Vegetación B/M/A, Edificio, Ruido", "en": "Classifies all points: Ground, Veg Lo/Med/Hi, Building, Noise"},
+    "classify.error_torch":     {"es": "PyTorch no instalado. Ejecuta: pip install torch", "en": "PyTorch not installed. Run: pip install torch"},
+    "classify.model_not_found": {"es": "Archivo de modelo no encontrado.", "en": "Model file not found."},
 
     # --- Hydrology Analysis ---
     "hydro.flow_direction": {"es": "Dirección de flujo", "en": "Flow direction"},

@@ -15,6 +15,7 @@ RESOURCES_DIR = ROOT_DIR / "resources"
 ICONS_DIR = RESOURCES_DIR / "icons"
 STYLES_DIR = RESOURCES_DIR / "styles"
 COLORMAPS_DIR = RESOURCES_DIR / "colormaps"
+MODELS_DIR    = RESOURCES_DIR / "models"
 
 # ---------------------------------------------------------------------------
 # User preferences file
