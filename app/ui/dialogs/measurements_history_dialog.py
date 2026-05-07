@@ -83,6 +83,13 @@ class MeasurementEntry:
                 f"  Num. vertices     : {d.get('num_vertices', '-')}",
                 f"  Fuente            : {'MDT' if d.get('used_raster') else 'Shoelace (sin MDT)'}",
             ]
+            verts = d.get('vertices', [])
+            if verts:
+                lines.append("  Vértices:")
+                for i, v in enumerate(verts[:10], 1):
+                    lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
+                if len(verts) > 10:
+                    lines.append(f"    ... y {len(verts) - 10} más")
         elif self.mtype == "distancia":
             lines += [
                 f"  Distancia 3D  : {_fmt(d.get('distance_3d', 0), 'm')}",
@@ -100,7 +107,15 @@ class MeasurementEntry:
                 f"  Neto     : {_fmt(d.get('net_volume_m3', 0), 'm3')}",
                 f"  Area base: {_fmt(d.get('area_m2', 0), 'm2')}",
                 f"  Z ref.   : {_fmt(d.get('reference_z', 0), 'm')}",
+                f"  Num. vertices : {d.get('num_vertices', '-')}",
             ]
+            verts = d.get('vertices', [])
+            if verts:
+                lines.append("  Vértices:")
+                for i, v in enumerate(verts[:10], 1):
+                    lines.append(f"    {i:2}. ({v.get('x', 0):.3f}, {v.get('y', 0):.3f}, {v.get('z', 0):.3f})")
+                if len(verts) > 10:
+                    lines.append(f"    ... y {len(verts) - 10} más")
         elif self.mtype == "perfil":
             lines += [
                 f"  Longitud : {_fmt(d.get('length_m', 0), 'm')}",

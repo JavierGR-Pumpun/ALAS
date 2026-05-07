@@ -782,6 +782,7 @@ class MainWindow(QMainWindow):
             self._area_dialog = AreaToolDialog(self)
             self._area_dialog.calculate_requested.connect(self._calculate_area)
             self._area_dialog.clear_requested.connect(self._on_area_clear)
+            self._area_dialog.undo_requested.connect(self._on_area_undo)
 
         self._area_dialog.reset()
         self._area_dialog.show()
@@ -809,6 +810,22 @@ class MainWindow(QMainWindow):
         if self._area_dialog is not None and self._area_dialog.isVisible():
             self.viewport.enable_area_tool(on_vertex_added=self._on_area_vertex_added)
         self._update_status(tr("status.ready"))
+
+    def _on_area_undo(self, vertices: list):
+        """Redibuja los vértices restantes tras deshacer."""
+        self.viewport.disable_tools()
+        if self._area_dialog is not None and self._area_dialog.isVisible():
+            self.viewport.enable_area_tool(on_vertex_added=self._on_area_vertex_added)
+            # Redibujar los vértices restantes
+            for v in vertices:
+                self.viewport.add_measurement_marker(v)
+            # Redibujar líneas entre vértices consecutivos
+            for i in range(len(vertices) - 1):
+                self.viewport.add_measurement_line(vertices[i], vertices[i + 1])
+        n = len(vertices)
+        self._update_status(
+            f"Área: {n} vértice{'s' if n != 1 else ''} — pulsa Calcular o Enter en el panel"
+        )
 
     def _calculate_area(self):
         """Calcula el área del polígono y muestra los resultados en el modal."""
@@ -867,12 +884,14 @@ class MainWindow(QMainWindow):
         )
 
         # ── Guardar en historial ──────────────────────────────────────
+        verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
         self._record_measurement("area", {
             "planimetric_area_m2": plan_m2,
             "surface_area_m2":     surf_m2,
             "perimeter_m":         perimeter,
             "used_raster":         used_raster,
             "num_vertices":        len(vertices),
+            "vertices":            verts_as_dicts,
         })
 
     @staticmethod
@@ -971,9 +990,12 @@ class MainWindow(QMainWindow):
             hist_data = {k: v for k, v in res.items() if k not in ('grid_x', 'grid_y', 'grid_z')}
 
             # Guardar en historial
+            verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
             self._record_measurement("volumen", {
                 **hist_data,
                 "reference_z": z_ref,
+                "num_vertices": len(vertices),
+                "vertices": verts_as_dicts,
             })
         except Exception as e:
             logger.error(f"Error calculando volumen: {e}")

@@ -31,6 +31,7 @@ class AreaToolDialog(QDialog):
 
     calculate_requested = pyqtSignal()   # El main_window ejecuta el cálculo
     clear_requested     = pyqtSignal()   # El main_window limpia el viewport
+    undo_requested      = pyqtSignal(list)  # El main_window redibuja con vértices restantes
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Tool)  # Tool = flotante, no bloquea
@@ -207,6 +208,11 @@ class AreaToolDialog(QDialog):
         self._btn_calc.setEnabled(False)
         self._results_group.setVisible(False)
         self._lbl_source.setText("")
+        self._lbl_plan.setText("—")
+        self._lbl_plan_ha.setText("—")
+        self._lbl_surf.setText("—")
+        self._lbl_perim.setText("—")
+        self._lbl_verts.setText("—")
         self.adjustSize()
 
     # ------------------------------------------------------------------
@@ -225,10 +231,7 @@ class AreaToolDialog(QDialog):
         n = len(self._vertices)
         self._count_label.setText(f"{n} vértice{'s' if n != 1 else ''}")
         self._btn_calc.setEnabled(n >= 3)
-        # Notificar al main_window para redibujar
-        self.clear_requested.emit()
-        # Re-emit all vertices back so the viewport redraws them
-        # (main_window reconecta la herramienta desde cero con los vértices actuales)
+        self.undo_requested.emit(list(self._vertices))
 
     def _on_clear(self):
         self.reset()
@@ -241,9 +244,8 @@ class AreaToolDialog(QDialog):
 
     # Evitar que cerrar la ventana destruya el diálogo
     def closeEvent(self, event):
-        self._on_close()
         event.ignore()   # No destruir, solo ocultar
-        self.hide()
+        self._on_close()
 
     # Enter cuando el foco está en el diálogo
     def keyPressEvent(self, event):
