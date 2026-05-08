@@ -17,6 +17,7 @@ from app.core.raster_layer import RasterLayer
 from app.i18n import tr
 from app.logger import get_logger
 from app.processing.workers import ProcessingWorker
+from app.ui.widgets import LoadingOverlay
 
 logger = get_logger("ui.analysis_dialog")
 
@@ -217,6 +218,9 @@ class AnalysisDialog(QDialog):
         btn_layout.addWidget(btn_close)
         layout.addLayout(btn_layout)
 
+        self._loading_overlay = LoadingOverlay(self)
+        self._loading_overlay.hide()
+
     def _get_raster_combo(self) -> QComboBox:
         """Create a combo with the available raster layers."""
         combo = QComboBox()
@@ -347,13 +351,18 @@ class AnalysisDialog(QDialog):
             return results
 
         self._btn_run_geo.setEnabled(False)
+        self._loading_overlay.show_loading()
         worker = ProcessingWorker(_compute)
         worker.signals.result.connect(self._on_geomorph_result)
         worker.signals.error.connect(lambda e: (
+            self._loading_overlay.hide_loading(),
             QMessageBox.critical(self, tr("crs.error"), e),
             self._btn_run_geo.setEnabled(True)
         ))
-        worker.signals.finished.connect(lambda: self._btn_run_geo.setEnabled(True))
+        worker.signals.finished.connect(lambda: (
+            self._loading_overlay.hide_loading(),
+            self._btn_run_geo.setEnabled(True)
+        ))
         QThreadPool.globalInstance().start(worker)
 
     def _on_geomorph_result(self, layers):
@@ -539,14 +548,19 @@ class AnalysisDialog(QDialog):
             return results
 
         self._btn_run_hydro.setEnabled(False)
+        self._loading_overlay.show_loading()
         worker = ProcessingWorker(_compute)
         worker.signals.result.connect(self._on_hydro_result)
         worker.signals.error.connect(lambda e: (
+            self._loading_overlay.hide_loading(),
             QMessageBox.critical(self, tr("crs.error"), e),
             logger.error(f"Error in hydrological analysis: {e}"),
             self._btn_run_hydro.setEnabled(True)
         ))
-        worker.signals.finished.connect(lambda: self._btn_run_hydro.setEnabled(True))
+        worker.signals.finished.connect(lambda: (
+            self._loading_overlay.hide_loading(),
+            self._btn_run_hydro.setEnabled(True)
+        ))
         QThreadPool.globalInstance().start(worker)
 
     def _on_hydro_result(self, results):
@@ -666,13 +680,18 @@ class AnalysisDialog(QDialog):
             return layers, tree_tops
 
         self._btn_run_veg.setEnabled(False)
+        self._loading_overlay.show_loading()
         worker = ProcessingWorker(_compute)
         worker.signals.result.connect(self._on_veg_result)
         worker.signals.error.connect(lambda e: (
+            self._loading_overlay.hide_loading(),
             QMessageBox.critical(self, tr("crs.error"), e),
             self._btn_run_veg.setEnabled(True)
         ))
-        worker.signals.finished.connect(lambda: self._btn_run_veg.setEnabled(True))
+        worker.signals.finished.connect(lambda: (
+            self._loading_overlay.hide_loading(),
+            self._btn_run_veg.setEnabled(True)
+        ))
         QThreadPool.globalInstance().start(worker)
 
     def _on_veg_result(self, payload):
@@ -766,13 +785,18 @@ class AnalysisDialog(QDialog):
             return layers
 
         self._btn_run_multi.setEnabled(False)
+        self._loading_overlay.show_loading()
         worker = ProcessingWorker(_compute)
         worker.signals.result.connect(self._on_multi_result)
         worker.signals.error.connect(lambda e: (
+            self._loading_overlay.hide_loading(),
             QMessageBox.critical(self, tr("crs.error"), e),
             self._btn_run_multi.setEnabled(True)
         ))
-        worker.signals.finished.connect(lambda: self._btn_run_multi.setEnabled(True))
+        worker.signals.finished.connect(lambda: (
+            self._loading_overlay.hide_loading(),
+            self._btn_run_multi.setEnabled(True)
+        ))
         QThreadPool.globalInstance().start(worker)
 
     def _on_multi_result(self, layers):

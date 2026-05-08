@@ -24,7 +24,8 @@ from app.ui.panels.properties_panel import PropertiesPanel
 from app.ui.panels.tools_panel import ToolsPanel
 from app.ui.panels.statistics_panel import StatisticsPanel
 from app.ui.panels.log_panel import LogPanel
-from app.processing.workers import FileLoadWorker, ProcessingWorkerSignals
+from app.processing.workers import FileLoadWorker, ProcessingWorker, ProcessingWorkerSignals
+from app.ui.widgets import LoadingOverlay
 from app.config import (
     APP_NAME, APP_FULL_NAME, APP_VERSION,
     POINT_CLOUD_FILTER, RASTER_FILTER, POINT_CLOUD_EXTENSIONS,
@@ -98,6 +99,9 @@ class MainWindow(QMainWindow):
     def _setup_viewport(self):
         self.viewport = Viewport3D(self)
         self.setCentralWidget(self.viewport)
+        
+        self._loading_overlay = LoadingOverlay(self)
+        self._loading_overlay.hide()
 
     # ==================================================================
     # Dock Panels
@@ -499,8 +503,10 @@ class MainWindow(QMainWindow):
         worker = FileLoadWorker(file_path, loader_func, **kwargs)
         
         # Connect signals
+        worker.signals.started.connect(lambda: self._loading_overlay.show_loading())
         worker.signals.result.connect(lambda res: self._on_file_loaded(res, ext, file_path))
         worker.signals.error.connect(lambda err: self._on_file_load_error(err, file_path))
+        worker.signals.finished.connect(lambda: self._loading_overlay.hide_loading())
         
         self.thread_pool.start(worker)
 
@@ -529,6 +535,23 @@ class MainWindow(QMainWindow):
     def _on_file_load_error(self, error_msg, file_path):
         logger.error(f"Error loading {file_path}: {error_msg}")
         QMessageBox.critical(self, tr("error.processing_failed"), str(error_msg))
+        self._update_status(tr("status.ready"))
+
+    def _run_processing(self, func, *args, on_result, on_error=None, **kwargs):
+        """Run func in a thread with loading overlay. on_result/on_error called on main thread."""
+        self._update_status(tr("status.processing"))
+        worker = ProcessingWorker(func, *args, **kwargs)
+        worker.signals.started.connect(self._loading_overlay.show_loading)
+        worker.signals.result.connect(on_result)
+        worker.signals.error.connect(on_error if on_error is not None else self._on_processing_error)
+        worker.signals.finished.connect(self._on_processing_finished)
+        self.thread_pool.start(worker)
+
+    def _on_processing_error(self, error_msg: str):
+        QMessageBox.critical(self, tr("crs.error"), error_msg)
+
+    def _on_processing_finished(self):
+        self._loading_overlay.hide_loading()
         self._update_status(tr("status.ready"))
 
     def _prompt_crs_assignment(self, pc: PointCloudData):
@@ -696,22 +719,20 @@ class MainWindow(QMainWindow):
         if len(clouds) < 2:
             QMessageBox.information(self, tr("dialog.info"), tr("msg.at_least_2_clouds"))
             return
-        merged = PointCloudData.merge(clouds, "merged")
-        self.layer_manager.add_layer(merged)
-        self.viewport.reset_camera()
+
+        def _on_result(merged):
+            self.layer_manager.add_layer(merged)
+            self.viewport.reset_camera()
+
+        self._run_processing(PointCloudData.merge, clouds, "merged", on_result=_on_result)
 
     def _filter_noise(self):
         entry = self.layer_manager.active_layer
         if not entry or not entry.is_point_cloud:
             return
         from app.processing.preprocessing import filter_noise
-        try:
-            self._update_status(tr("status.processing"))
-            result = filter_noise(entry.layer)
-            idx = self.layer_manager.add_layer(result)
-            self._update_status(tr("status.ready"))
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+        self._run_processing(filter_noise, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result))
 
     def _decimate_cloud(self):
         entry = self.layer_manager.active_layer
@@ -721,18 +742,21 @@ class MainWindow(QMainWindow):
         voxel, ok = QInputDialog.getDouble(
             self, tr("msg.decimate_title"), tr("msg.voxel_size"), 0.5, 0.01, 100.0, 2
         )
-        if ok:
-            from app.processing.preprocessing import decimate
-            result = decimate(entry.layer, voxel_size=voxel)
-            self.layer_manager.add_layer(result)
+        if not ok:
+            return
+        from app.processing.preprocessing import decimate
+        self._run_processing(decimate, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result),
+                             voxel_size=voxel)
 
     def _remove_overlap(self):
         entry = self.layer_manager.active_layer
         if not entry or not entry.is_point_cloud:
             return
         from app.processing.preprocessing import handle_overlap
-        result = handle_overlap(entry.layer, strategy="remove")
-        self.layer_manager.add_layer(result)
+        self._run_processing(handle_overlap, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result),
+                             strategy="remove")
 
     # --- Tools ---
     def _start_profile_tool(self):
@@ -918,10 +942,8 @@ class MainWindow(QMainWindow):
         if len(vertices) < 3:
             return
 
-        # Draw visual closing line in viewport
         self.viewport.draw_closing_line()
 
-        # Calculate 2D perimeter
         pts = np.array(vertices)
         diffs = np.diff(pts[:, :2], axis=0)
         seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
@@ -930,42 +952,47 @@ class MainWindow(QMainWindow):
         )
         perimeter = float(seg_lengths.sum() + closing)
 
-        # Search for DEM (first available raster)
         rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
-        used_raster = bool(rasters)
 
-        if used_raster:
+        if rasters:
             from app.processing.measurements import measure_area
-            try:
-                polygon_xy = pts[:, :2]  # (N, 2)
-                res = measure_area(rasters[0].layer, polygon_xy)
-                plan_m2   = res["planimetric_area_m2"]
-                surf_m2   = res["surface_area_m2"]
-            except Exception as e:
-                logger.error(f"Error calculating area with DEM: {e}")
-                used_raster = False
-                plan_m2 = self._shoelace_area(pts[:, :2])
-                surf_m2 = plan_m2
-        else:
-            # Without DEM: Shoelace on XY
-            plan_m2 = self._shoelace_area(pts[:, :2])
-            surf_m2 = plan_m2
+            polygon_xy = pts[:, :2]
+            raster_layer = rasters[0].layer
 
+            def _on_area_result(res):
+                self._finish_area_calculation(
+                    vertices, res["planimetric_area_m2"], res["surface_area_m2"],
+                    perimeter, True
+                )
+
+            def _on_area_error(e):
+                logger.error(f"Error calculating area with DEM: {e}")
+                fallback = self._shoelace_area(pts[:, :2])
+                self._finish_area_calculation(vertices, fallback, fallback, perimeter, False)
+
+            self._run_processing(
+                measure_area, raster_layer, polygon_xy,
+                on_result=_on_area_result,
+                on_error=_on_area_error,
+            )
+        else:
+            plan_m2 = self._shoelace_area(pts[:, :2])
+            self._finish_area_calculation(vertices, plan_m2, plan_m2, perimeter, False)
+
+    def _finish_area_calculation(self, vertices, plan_m2, surf_m2, perimeter, used_raster):
+        if self._area_dialog is None:
+            return
         self._area_dialog.show_results(
             plan_m2=plan_m2,
             surf_m2=surf_m2,
             perimeter_m=perimeter,
             used_raster=used_raster,
         )
-        self._update_status(
-            tr("msg.area_calculated").format(plan_m2, perimeter)
-        )
+        self._update_status(tr("msg.area_calculated").format(plan_m2, perimeter))
         logger.info(
             f"Area: plan={plan_m2:.2f}m² surf={surf_m2:.2f}m² "
             f"per={perimeter:.2f}m verts={len(vertices)}"
         )
-
-        # ── Save to history ──────────────────────────────────────
         verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
         self._record_measurement("area", {
             "planimetric_area_m2": plan_m2,
@@ -1033,44 +1060,33 @@ class MainWindow(QMainWindow):
             return
 
         z_ref = self._volume_dialog.get_reference_z()
-
-        # Draw visual closing line in viewport
         self.viewport.draw_closing_line()
 
-        # Search for DEM (first available raster)
         rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
         if not rasters:
             self._volume_dialog.show_error(tr("msg.volume_no_dem"))
             return
 
         from app.processing.measurements import calculate_volume
-        raster_entry = rasters[0]
-        polygon = np.array(vertices)
-        polygon_xy = polygon[:, :2]  # Extract only X and Y coordinates (N, 2)
+        raster_layer = rasters[0].layer
+        polygon_xy = np.array(vertices)[:, :2]
 
-        try:
-            res = calculate_volume(raster_entry.layer, z_ref, polygon_xy)
-            cut = res['cut_volume_m3']
-            fill = res['fill_volume_m3']
-            net = res['net_volume_m3']
-            area = res['area_m2']
+        def _do_volume():
+            return calculate_volume(raster_layer, z_ref, polygon_xy)
 
-            self._volume_dialog.show_results(cut, fill, net, area)
-            self._update_status(tr("msg.volume_calculated").format(net, z_ref))
-
-            # Draw the 3D region in the viewport
+        def _on_volume_result(res):
+            if not hasattr(self, "_volume_dialog") or self._volume_dialog is None:
+                return
+            self._volume_dialog.show_results(
+                res['cut_volume_m3'], res['fill_volume_m3'],
+                res['net_volume_m3'], res['area_m2']
+            )
+            self._update_status(tr("msg.volume_calculated").format(res['net_volume_m3'], z_ref))
             if 'grid_x' in res:
                 self.viewport.display_volume_region(
-                    res['grid_x'], 
-                    res['grid_y'],
-                    res['grid_z'],
-                    z_ref
+                    res['grid_x'], res['grid_y'], res['grid_z'], z_ref
                 )
-
-            # Remove heavy data before saving to history
             hist_data = {k: v for k, v in res.items() if k not in ('grid_x', 'grid_y', 'grid_z')}
-
-            # Save to history
             verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
             self._record_measurement("volume", {
                 **hist_data,
@@ -1078,9 +1094,13 @@ class MainWindow(QMainWindow):
                 "num_vertices": len(vertices),
                 "vertices": verts_as_dicts,
             })
-        except Exception as e:
+
+        def _on_volume_error(e):
             logger.error(f"Error calculating volume: {e}")
-            self._volume_dialog.show_error(f"Error: {str(e)}")
+            if hasattr(self, "_volume_dialog") and self._volume_dialog is not None:
+                self._volume_dialog.show_error(f"Error: {e}")
+
+        self._run_processing(_do_volume, on_result=_on_volume_result, on_error=_on_volume_error)
 
     # --- Measurements history ---
     def _get_measurements_dialog(self):

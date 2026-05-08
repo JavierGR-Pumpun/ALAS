@@ -89,11 +89,11 @@ class LoginDialog(QDialog):
         self._login_error.setVisible(False)
         layout.addWidget(self._login_error)
 
-        btn = QPushButton(tr("auth.login"))
-        btn.setFixedHeight(40)
-        btn.setObjectName("primary")
-        btn.clicked.connect(self._do_login)
-        layout.addWidget(btn)
+        self._login_btn = QPushButton(tr("auth.login"))
+        self._login_btn.setFixedHeight(40)
+        self._login_btn.setObjectName("primary")
+        self._login_btn.clicked.connect(self._do_login)
+        layout.addWidget(self._login_btn)
 
         layout.addStretch()
         self._tabs.addTab(tab, tr("auth.login"))
@@ -120,19 +120,35 @@ class LoginDialog(QDialog):
         self._reg_error.setVisible(False)
         layout.addWidget(self._reg_error)
 
-        btn = QPushButton(tr("auth.register"))
-        btn.setFixedHeight(40)
-        btn.setObjectName("primary")
-        btn.clicked.connect(self._do_register)
-        layout.addWidget(btn)
+        self._register_btn = QPushButton(tr("auth.register"))
+        self._register_btn.setFixedHeight(40)
+        self._register_btn.setObjectName("primary")
+        self._register_btn.clicked.connect(self._do_register)
+        layout.addWidget(self._register_btn)
 
         layout.addStretch()
         self._tabs.addTab(tab, tr("auth.register"))
 
     # ------------------------------------------------------------------
 
+    def _set_login_enabled(self, enabled: bool):
+        self._login_email.setEnabled(enabled)
+        self._login_password.setEnabled(enabled)
+        self._remember_me.setEnabled(enabled)
+        self._login_btn.setEnabled(enabled)
+
+    def _set_register_enabled(self, enabled: bool):
+        self._reg_name.setEnabled(enabled)
+        self._reg_email.setEnabled(enabled)
+        self._reg_phone.setEnabled(enabled)
+        self._reg_password.setEnabled(enabled)
+        self._reg_confirm.setEnabled(enabled)
+        self._register_btn.setEnabled(enabled)
+
     def _do_login(self):
         from app.auth.service import login as auth_login
+        from app.processing.workers import ProcessingWorker
+        from PyQt6.QtCore import QThreadPool
 
         self._login_error.setVisible(False)
         email = self._login_email.text().strip()
@@ -142,17 +158,34 @@ class LoginDialog(QDialog):
             self._show_error(self._login_error, tr("auth.error_fill_all_fields"))
             return
 
-        result = auth_login(email, password, remember_me=self._remember_me.isChecked())
-        if isinstance(result, str):
-            self._show_error(self._login_error, tr(result))
-            return
+        remember_me = self._remember_me.isChecked()
+        self._set_login_enabled(False)
 
-        self.user, self.session_token = result
-        logger.info(f"Login OK: {email}")
-        self.accept()
+        def _do():
+            return auth_login(email, password, remember_me=remember_me)
+
+        def _on_result(result):
+            if isinstance(result, str):
+                self._show_error(self._login_error, tr(result))
+                self._set_login_enabled(True)
+                return
+            self.user, self.session_token = result
+            logger.info(f"Login OK: {email}")
+            self.accept()
+
+        def _on_error(e):
+            self._show_error(self._login_error, str(e))
+            self._set_login_enabled(True)
+
+        worker = ProcessingWorker(_do)
+        worker.signals.result.connect(_on_result)
+        worker.signals.error.connect(_on_error)
+        QThreadPool.globalInstance().start(worker)
 
     def _do_register(self):
         from app.auth.service import register as auth_register
+        from app.processing.workers import ProcessingWorker
+        from PyQt6.QtCore import QThreadPool
 
         self._reg_error.setVisible(False)
         name = self._reg_name.text().strip()
@@ -171,15 +204,29 @@ class LoginDialog(QDialog):
             self._show_error(self._reg_error, tr("auth.error_password_too_short"))
             return
 
-        result = auth_register(name, email, phone, password)
-        if isinstance(result, str):
-            self._show_error(self._reg_error, tr(result))
-            return
+        self._set_register_enabled(False)
 
-        self.user = result
-        self.session_token = None
-        logger.info(f"Register OK: {email}")
-        self.accept()
+        def _do():
+            return auth_register(name, email, phone, password)
+
+        def _on_result(result):
+            if isinstance(result, str):
+                self._show_error(self._reg_error, tr(result))
+                self._set_register_enabled(True)
+                return
+            self.user = result
+            self.session_token = None
+            logger.info(f"Register OK: {email}")
+            self.accept()
+
+        def _on_error(e):
+            self._show_error(self._reg_error, str(e))
+            self._set_register_enabled(True)
+
+        worker = ProcessingWorker(_do)
+        worker.signals.result.connect(_on_result)
+        worker.signals.error.connect(_on_error)
+        QThreadPool.globalInstance().start(worker)
 
     def _show_error(self, label: QLabel, message: str):
         label.setText(message)
