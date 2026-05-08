@@ -6,6 +6,7 @@ Generation of DEM, DSM and CHM from classified point clouds.
 import numpy as np
 from typing import Optional, Tuple
 from scipy.interpolate import griddata
+from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
 from app.core.point_cloud import PointCloudData
@@ -190,21 +191,16 @@ def _points_to_raster_max(points: np.ndarray, resolution: float,
     col_idx = np.clip(((x - xmin) / resolution).astype(int), 0, cols - 1)
     row_idx = np.clip(((ymax - y) / resolution).astype(int), 0, rows - 1)
 
-    # Use maximum per cell
-    for i in range(len(z)):
-        r, c = row_idx[i], col_idx[i]
-        if grid_z[r, c] == DEFAULT_NODATA or z[i] > grid_z[r, c]:
-            grid_z[r, c] = z[i]
+    # Vectorized max-per-cell using a -inf sentinel, then restore nodata
+    temp = np.full((rows, cols), -np.inf, dtype=np.float32)
+    np.maximum.at(temp, (row_idx, col_idx), z.astype(np.float32))
+    grid_z = np.where(np.isfinite(temp), temp, DEFAULT_NODATA).astype(np.float32)
 
-    # Fill gaps with nearest interpolation
+    # Fill gaps with nearest-valid-cell using EDT (O(N) vs KDTree O(N log N))
     nodata_mask = grid_z == DEFAULT_NODATA
     if nodata_mask.any() and not nodata_mask.all():
-        valid_mask = ~nodata_mask
-        valid_coords = np.argwhere(valid_mask)
-        nodata_coords = np.argwhere(nodata_mask)
-        tree = cKDTree(valid_coords)
-        _, nearest_idx = tree.query(nodata_coords, k=1)
-        grid_z[nodata_mask] = grid_z[valid_mask][nearest_idx]
+        _, nearest = distance_transform_edt(nodata_mask, return_indices=True)
+        grid_z[nodata_mask] = grid_z[nearest[0][nodata_mask], nearest[1][nodata_mask]]
 
     bounds = (xmin, ymin, xmax, ymax)
     return RasterLayer.from_array(grid_z, bounds, epsg=epsg,

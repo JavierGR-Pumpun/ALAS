@@ -10,12 +10,13 @@ from PyQt6.QtWidgets import (
     QWidget, QScrollArea, QMainWindow, QListWidget, QListWidgetItem
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThreadPool
 
 from app.core.layer_manager import LayerManager
 from app.core.raster_layer import RasterLayer
 from app.i18n import tr
 from app.logger import get_logger
+from app.processing.workers import ProcessingWorker
 
 logger = get_logger("ui.analysis_dialog")
 
@@ -65,7 +66,14 @@ class HydroResultsWindow(QMainWindow):
                 layout.addWidget(grp)
 
             except Exception as e:
-                logger.error(f"Error rendering {layer_type}: {e}")
+                logger.error(f"Error rendering {layer_type}: {e}", exc_info=True)
+                grp = QGroupBox(tr("analysis.result").format(layer_type))
+                grp_layout = QVBoxLayout(grp)
+                lbl_err = QLabel(f"⚠ {e}")
+                lbl_err.setStyleSheet("color: #e74c3c; padding: 8px;")
+                lbl_err.setWordWrap(True)
+                grp_layout.addWidget(lbl_err)
+                layout.addWidget(grp)
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -289,10 +297,10 @@ class AnalysisDialog(QDialog):
         layout.addWidget(grp_hs)
 
         # Run button
-        btn_run = QPushButton(tr("analysis.execute_geomorph"))
-        btn_run.setObjectName("primary")
-        btn_run.clicked.connect(self._run_geomorphology)
-        layout.addWidget(btn_run)
+        self._btn_run_geo = QPushButton(tr("analysis.execute_geomorph"))
+        self._btn_run_geo.setObjectName("primary")
+        self._btn_run_geo.clicked.connect(self._run_geomorphology)
+        layout.addWidget(self._btn_run_geo)
 
         layout.addStretch()
         return tab
@@ -307,42 +315,51 @@ class AnalysisDialog(QDialog):
         if not isinstance(dtm, RasterLayer):
             return
 
-        try:
+        checks = dict(
+            slope=self._chk_slope.isChecked(),
+            aspect=self._chk_aspect.isChecked(),
+            curvature=self._chk_curvature.isChecked(),
+            roughness=self._chk_roughness.isChecked(),
+            hillshade=self._chk_hillshade.isChecked(),
+            morpho=self._chk_morpho.isChecked(),
+        )
+        azimuth = self._hs_azimuth.value()
+        altitude = self._hs_altitude.value()
+
+        def _compute():
             from app.processing.geomorphology import (
                 calculate_slope, calculate_aspect, calculate_curvature,
                 calculate_roughness, calculate_hillshade, morphometric_classification
             )
+            results = []
+            if checks['slope']:
+                results.append(calculate_slope(dtm))
+            if checks['aspect']:
+                results.append(calculate_aspect(dtm))
+            if checks['curvature']:
+                results.append(calculate_curvature(dtm))
+            if checks['roughness']:
+                results.append(calculate_roughness(dtm))
+            if checks['hillshade']:
+                results.append(calculate_hillshade(dtm, azimuth, altitude))
+            if checks['morpho']:
+                results.append(morphometric_classification(dtm))
+            return results
 
-            if self._chk_slope.isChecked():
-                result = calculate_slope(dtm)
-                self.layer_manager.add_layer(result)
+        self._btn_run_geo.setEnabled(False)
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_geomorph_result)
+        worker.signals.error.connect(lambda e: (
+            QMessageBox.critical(self, tr("crs.error"), e),
+            self._btn_run_geo.setEnabled(True)
+        ))
+        worker.signals.finished.connect(lambda: self._btn_run_geo.setEnabled(True))
+        QThreadPool.globalInstance().start(worker)
 
-            if self._chk_aspect.isChecked():
-                result = calculate_aspect(dtm)
-                self.layer_manager.add_layer(result)
-
-            if self._chk_curvature.isChecked():
-                result = calculate_curvature(dtm)
-                self.layer_manager.add_layer(result)
-
-            if self._chk_roughness.isChecked():
-                result = calculate_roughness(dtm)
-                self.layer_manager.add_layer(result)
-
-            if self._chk_hillshade.isChecked():
-                result = calculate_hillshade(
-                    dtm, self._hs_azimuth.value(), self._hs_altitude.value()
-                )
-                self.layer_manager.add_layer(result)
-
-            if self._chk_morpho.isChecked():
-                result = morphometric_classification(dtm)
-                self.layer_manager.add_layer(result)
-
-            QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_geomorph"))
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+    def _on_geomorph_result(self, layers):
+        for layer in layers:
+            self.layer_manager.add_layer(layer)
+        QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_geomorph"))
 
     # ------------------------------------------------------------------
     # Hydrology Tab
@@ -395,10 +412,10 @@ class AnalysisDialog(QDialog):
         layout.addWidget(grp_params)
 
         # Hydrological analysis buttons
-        btn_run = QPushButton(tr("hydro.execute"))
-        btn_run.setObjectName("primary")
-        btn_run.clicked.connect(self._run_hydrology)
-        layout.addWidget(btn_run)
+        self._btn_run_hydro = QPushButton(tr("hydro.execute"))
+        self._btn_run_hydro.setObjectName("primary")
+        self._btn_run_hydro.clicked.connect(self._run_hydrology)
+        layout.addWidget(self._btn_run_hydro)
 
         self._btn_view_results = QPushButton(tr("analysis.view_results"))
         self._btn_view_results.setEnabled(False)
@@ -492,57 +509,69 @@ class AnalysisDialog(QDialog):
         if not isinstance(dtm, RasterLayer):
             return
 
-        try:
+        checks = dict(
+            flow_dir=self._chk_flow_dir.isChecked(),
+            flow_acc=self._chk_flow_acc.isChecked(),
+            ponding=self._chk_ponding.isChecked(),
+            rainfall=self._chk_rainfall.isChecked(),
+            flood=self._chk_flood.isChecked(),
+        )
+        rainfall_intensity = self._rainfall_intensity.value()
+        flood_water_height = self._flood_water_height.value()
+        self._pending_hydro_dtm_name = dtm.name
+
+        def _compute():
             from app.processing.hydrology import (
-                flow_direction, flow_accumulation, detect_ponding_zones, simulate_rainfall
+                flow_direction, flow_accumulation, detect_ponding_zones,
+                simulate_rainfall, simulate_flood
             )
-
             results = {}
+            if checks['flow_dir']:
+                results["flow_direction"] = flow_direction(dtm)
+            if checks['flow_acc']:
+                results["flow_accumulation"] = flow_accumulation(dtm)
+            if checks['ponding']:
+                results["ponding"] = detect_ponding_zones(dtm)
+            if checks['rainfall']:
+                results["rainfall_runoff"] = simulate_rainfall(dtm, rainfall_mm_h=rainfall_intensity)
+            if checks['flood']:
+                results["flood_simulation"] = simulate_flood(dtm, water_height=flood_water_height)
+            return results
 
-            if self._chk_flow_dir.isChecked():
-                result = flow_direction(dtm)
-                results["flow_direction"] = result
+        self._btn_run_hydro.setEnabled(False)
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_hydro_result)
+        worker.signals.error.connect(lambda e: (
+            QMessageBox.critical(self, tr("crs.error"), e),
+            logger.error(f"Error in hydrological analysis: {e}"),
+            self._btn_run_hydro.setEnabled(True)
+        ))
+        worker.signals.finished.connect(lambda: self._btn_run_hydro.setEnabled(True))
+        QThreadPool.globalInstance().start(worker)
 
-            if self._chk_flow_acc.isChecked():
-                result = flow_accumulation(dtm)
-                results["flow_accumulation"] = result
+    def _on_hydro_result(self, results):
+        if not results:
+            QMessageBox.warning(self, tr("dialog.confirm"), tr("analysis.warning_no_analysis"))
+            return
 
-            if self._chk_ponding.isChecked():
-                result = detect_ponding_zones(dtm)
-                results["ponding"] = result
+        if "flood_simulation" in results:
+            self.layer_manager.add_layer(results["flood_simulation"])
 
-            if self._chk_rainfall.isChecked():
-                result = simulate_rainfall(dtm, rainfall_mm_h=self._rainfall_intensity.value())
-                results["rainfall_runoff"] = result
+        self._hydro_results = results
 
-            if self._chk_flood.isChecked():
-                from app.processing.hydrology import simulate_flood
-                result = simulate_flood(dtm, water_height=self._flood_water_height.value())
-                results["flood_simulation"] = result
-                self.layer_manager.add_layer(result)
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        main_window = self.parent()
+        if not hasattr(main_window, "_hydro_history"):
+            main_window._hydro_history = []
+        main_window._hydro_history.append({
+            "timestamp": timestamp,
+            "layer": self._pending_hydro_dtm_name,
+            "results": results
+        })
 
-            if results:
-                self._hydro_results = results
-                
-                import datetime
-                timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-                main_window = self.parent()
-                if not hasattr(main_window, "_hydro_history"):
-                    main_window._hydro_history = []
-                main_window._hydro_history.append({
-                    "timestamp": timestamp,
-                    "layer": dtm.name,
-                    "results": results
-                })
-
-                self._btn_view_results.setEnabled(True)
-                QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_hydro"))
-            else:
-                QMessageBox.warning(self, tr("dialog.confirm"), tr("analysis.warning_no_analysis"))
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
-            logger.error(f"Error in hydrological analysis: {e}", exc_info=True)
+        self._btn_view_results.setEnabled(True)
+        QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_hydro"))
 
 
     # ------------------------------------------------------------------
@@ -593,10 +622,10 @@ class AnalysisDialog(QDialog):
         vl.addWidget(self._chk_density)
         layout.addWidget(grp_anal)
 
-        btn_run = QPushButton(tr("analysis.execute_veg"))
-        btn_run.setObjectName("primary")
-        btn_run.clicked.connect(self._run_vegetation)
-        layout.addWidget(btn_run)
+        self._btn_run_veg = QPushButton(tr("analysis.execute_veg"))
+        self._btn_run_veg.setObjectName("primary")
+        self._btn_run_veg.clicked.connect(self._run_vegetation)
+        layout.addWidget(self._btn_run_veg)
 
         layout.addStretch()
         return tab
@@ -611,34 +640,49 @@ class AnalysisDialog(QDialog):
         if not isinstance(chm, RasterLayer):
             return
 
-        try:
+        checks = dict(
+            tree_detect=self._chk_tree_detect.isChecked(),
+            crown_seg=self._chk_crown_seg.isChecked(),
+            density=self._chk_density.isChecked(),
+        )
+        min_tree_height = self._min_tree_height.value()
+        crown_window = self._crown_window.value()
+        density_cell = self._density_cell.value()
+
+        def _compute():
             from app.processing.vegetation import (
                 detect_tree_tops, segment_crowns, build_crown_raster, density_map
             )
-
+            layers = []
             tree_tops = None
-            if self._chk_tree_detect.isChecked():
-                tree_tops = detect_tree_tops(
-                    chm, self._min_tree_height.value(), self._crown_window.value()
-                )
+            if checks['tree_detect']:
+                tree_tops = detect_tree_tops(chm, min_tree_height, crown_window)
                 logger.info(f"Detected {len(tree_tops)} trees")
-
-            if self._chk_crown_seg.isChecked() and tree_tops is not None:
+            if checks['crown_seg'] and tree_tops is not None:
                 labels, height_map = segment_crowns(chm, tree_tops)
-                crown_rl = build_crown_raster(chm, height_map, labels)
-                self.layer_manager.add_layer(crown_rl)
+                layers.append(build_crown_raster(chm, height_map, labels))
+            if checks['density']:
+                layers.append(density_map(chm, density_cell))
+            return layers, tree_tops
 
-            if self._chk_density.isChecked():
-                result = density_map(chm, self._density_cell.value())
-                self.layer_manager.add_layer(result)
+        self._btn_run_veg.setEnabled(False)
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_veg_result)
+        worker.signals.error.connect(lambda e: (
+            QMessageBox.critical(self, tr("crs.error"), e),
+            self._btn_run_veg.setEnabled(True)
+        ))
+        worker.signals.finished.connect(lambda: self._btn_run_veg.setEnabled(True))
+        QThreadPool.globalInstance().start(worker)
 
-            msg = tr("analysis.completed_veg")
-            if tree_tops is not None:
-                msg += f"\n{tr('analysis.trees_detected').format(len(tree_tops))}"
-            QMessageBox.information(self, tr("dialog.confirm"), msg)
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+    def _on_veg_result(self, payload):
+        layers, tree_tops = payload
+        for layer in layers:
+            self.layer_manager.add_layer(layer)
+        msg = tr("analysis.completed_veg")
+        if tree_tops is not None:
+            msg += f"\n{tr('analysis.trees_detected').format(len(tree_tops))}"
+        QMessageBox.information(self, tr("dialog.confirm"), msg)
 
     # ------------------------------------------------------------------
     # Multitemporal Tab
@@ -677,10 +721,10 @@ class AnalysisDialog(QDialog):
         vl.addWidget(self._chk_deforest)
         layout.addWidget(grp_anal)
 
-        btn_run = QPushButton(tr("analysis.execute_multi"))
-        btn_run.setObjectName("primary")
-        btn_run.clicked.connect(self._run_multitemporal)
-        layout.addWidget(btn_run)
+        self._btn_run_multi = QPushButton(tr("analysis.execute_multi"))
+        self._btn_run_multi.setObjectName("primary")
+        self._btn_run_multi.clicked.connect(self._run_multitemporal)
+        layout.addWidget(self._btn_run_multi)
 
         layout.addStretch()
         return tab
@@ -699,25 +743,39 @@ class AnalysisDialog(QDialog):
         if not isinstance(before, RasterLayer) or not isinstance(after, RasterLayer):
             return
 
-        try:
+        checks = dict(
+            dod=self._chk_dod.isChecked(),
+            change_class=self._chk_change_class.isChecked(),
+            deforest=self._chk_deforest.isChecked(),
+        )
+        dod_threshold = self._dod_threshold.value()
+
+        def _compute():
             from app.processing.multitemporal import (
                 compute_dod, classify_changes, detect_deforestation
             )
-
+            layers = []
             dod = None
-            if self._chk_dod.isChecked():
+            if checks['dod']:
                 dod = compute_dod(before, after)
-                self.layer_manager.add_layer(dod)
+                layers.append(dod)
+            if checks['change_class'] and dod is not None:
+                layers.append(classify_changes(dod, dod_threshold))
+            if checks['deforest']:
+                layers.append(detect_deforestation(before, after))
+            return layers
 
-            if self._chk_change_class.isChecked() and dod is not None:
-                changes = classify_changes(dod, self._dod_threshold.value())
-                self.layer_manager.add_layer(changes)
+        self._btn_run_multi.setEnabled(False)
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_multi_result)
+        worker.signals.error.connect(lambda e: (
+            QMessageBox.critical(self, tr("crs.error"), e),
+            self._btn_run_multi.setEnabled(True)
+        ))
+        worker.signals.finished.connect(lambda: self._btn_run_multi.setEnabled(True))
+        QThreadPool.globalInstance().start(worker)
 
-            if self._chk_deforest.isChecked():
-                deforest = detect_deforestation(before, after)
-                self.layer_manager.add_layer(deforest)
-
-            QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_multi"))
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+    def _on_multi_result(self, layers):
+        for layer in layers:
+            self.layer_manager.add_layer(layer)
+        QMessageBox.information(self, tr("dialog.confirm"), tr("analysis.completed_multi"))

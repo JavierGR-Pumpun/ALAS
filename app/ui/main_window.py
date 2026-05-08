@@ -142,7 +142,7 @@ class MainWindow(QMainWindow):
     def _setup_menu_bar(self):
         menubar = self.menuBar()
 
-        # --- Archivo ---
+        # --- File ---
         menu_file = menubar.addMenu(tr("menu.file"))
 
         act_open = QAction(tr("action.open"), self)
@@ -181,7 +181,7 @@ class MainWindow(QMainWindow):
         act_exit.triggered.connect(self.close)
         menu_file.addAction(act_exit)
 
-        # --- Vista ---
+        # --- View ---
         menu_view = menubar.addMenu(tr("menu.view"))
 
         act_reset = QAction(tr("action.reset_view"), self)
@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
         act_en.triggered.connect(lambda: self._change_language("en"))
         menu_lang.addAction(act_en)
 
-        # --- Procesamiento ---
+        # --- Process ---
         menu_proc = menubar.addMenu(tr("menu.process"))
 
         act_classify = QAction(tr("action.classify"), self)
@@ -274,7 +274,7 @@ class MainWindow(QMainWindow):
         act_multi.triggered.connect(self._show_multitemporal_dialog)
         menu_analysis.addAction(act_multi)
 
-        # --- Herramientas ---
+        # --- Tools ---
         menu_tools = menubar.addMenu(tr("menu.tools"))
 
         act_profile = QAction(tr("action.profile"), self)
@@ -300,11 +300,28 @@ class MainWindow(QMainWindow):
         act_history.triggered.connect(self._show_measurements_history)
         menu_tools.addAction(act_history)
 
-        # --- Ayuda ---
+        # --- Help ---
         menu_help = menubar.addMenu(tr("menu.help"))
-        act_about = QAction(tr("dialog.about_title"), self)
-        act_about.triggered.connect(self._show_about)
-        menu_help.addAction(act_about)
+        act_about_help = QAction(tr("dialog.about_title"), self)
+        act_about_help.setMenuRole(QAction.MenuRole.NoRole)
+        act_about_help.triggered.connect(self._show_about)
+        menu_help.addAction(act_about_help)
+
+        # --- More ---
+        menu_more = menubar.addMenu(tr("menu.more"))
+
+        act_profile = QAction(tr("action.my_profile"), self)
+        act_profile.setMenuRole(QAction.MenuRole.NoRole)
+        act_profile.triggered.connect(self._show_profile)
+        menu_more.addAction(act_profile)
+
+        menu_more.addSeparator()
+
+        act_settings = QAction(tr("action.settings"), self)
+        act_settings.setMenuRole(QAction.MenuRole.NoRole)
+        act_settings.setShortcut(QKeySequence("Ctrl+,"))
+        act_settings.triggered.connect(self._show_settings)
+        menu_more.addAction(act_settings)
 
         # Avatar button — far right of the menu bar
         self._user_btn = QPushButton()
@@ -1119,14 +1136,32 @@ class MainWindow(QMainWindow):
 
     # --- About ---
     def _show_about(self):
-        QMessageBox.about(
-            self,
-            tr("dialog.about_title"),
-            f"<h2>{APP_NAME} v{APP_VERSION}</h2>"
-            f"<p>{APP_FULL_NAME}</p>"
-            f"<p>{tr('dialog.about_text')}</p>"
-            f"<p>{tr('msg.app_info')}</p>"
-        )
+        from app.ui.dialogs.about_dialog import AboutDialog
+        dlg = AboutDialog(self)
+        dlg.exec()
+
+    # --- Profile ---
+    def _show_profile(self):
+        if not self._current_user:
+            QMessageBox.information(self, tr("dialog.info"), tr("auth.my_account"))
+            return
+        self._show_user_panel()
+
+    # --- Settings ---
+    def _show_settings(self):
+        from app.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self.preferences, self)
+        dlg.settings_changed.connect(self._on_settings_changed)
+        dlg.exec()
+
+    def _on_settings_changed(self, values: dict):
+        bg = values.get("background_color")
+        if bg and hasattr(self.viewport, "set_background_color"):
+            self.viewport.set_background_color(bg)
+        pt = values.get("default_point_size")
+        if pt:
+            self.viewport.set_point_size(pt)
+        self.preferences.set("language", values.get("language", "es"))
 
     # --- Login gate ---
     def showEvent(self, event):

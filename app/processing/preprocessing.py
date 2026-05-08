@@ -3,7 +3,6 @@ ALAS — Preprocessing
 Merge, noise filtering, reprojection and decimation of point clouds.
 """
 
-import json
 import numpy as np
 import tempfile
 import os
@@ -45,55 +44,6 @@ def filter_noise(pc: PointCloudData, method: str = "statistical",
         f"({pc.point_count - result.point_count:,} removed)"
     )
     return result
-
-
-def _pdal_filter_noise_sor(pc: PointCloudData, k: int,
-                            multiplier: float) -> PointCloudData:
-    """SOR filtering using PDAL pipeline."""
-    import pdal
-
-    tmp_dir = _get_ascii_tmpdir()
-    uid = id(pc)
-    tmp_in  = tmp_dir / f"alas_sor_in_{uid}.las"
-    tmp_out = tmp_dir / f"alas_sor_out_{uid}.las"
-
-    try:
-        pc.to_file(str(tmp_in), compress=False)
-
-        pipeline_json = json.dumps([
-            {"type": "readers.las", "filename": tmp_in.as_posix()},
-            {
-                "type": "filters.outlier",
-                "method": "statistical",
-                "mean_k": k,
-                "multiplier": multiplier,
-                # Only act on unclassified points, respect Ground,
-                # Vegetation, Building, Overlap (class 12), etc.
-                "where": "Classification == 0 || Classification == 1",
-            },
-            {
-                "type": "filters.range",
-                # Exclude only class 7 (noise marked by PDAL), keep everything else
-                "limits": "Classification![7:7]",
-            },
-            {"type": "writers.las", "filename": tmp_out.as_posix()},
-        ], ensure_ascii=True)
-
-        # Guard: verify that JSON is pure ASCII before passing to PDAL
-        pipeline_json.encode("ascii")
-
-        pipeline = pdal.Pipeline(pipeline_json)
-        pipeline.execute()
-
-        result = PointCloudData.from_file(str(tmp_out))
-        result.name = f"{pc.name}_filtered"
-        result.crs_wkt = pc.crs_wkt
-        result.crs_epsg = pc.crs_epsg
-        return result
-
-    finally:
-        tmp_in.unlink(missing_ok=True)
-        tmp_out.unlink(missing_ok=True)
 
 
 def _numpy_sor(pc: PointCloudData, k: int, multiplier: float) -> PointCloudData:

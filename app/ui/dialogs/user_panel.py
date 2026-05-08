@@ -1,15 +1,16 @@
 """
 ALAS — User Panel Dialog
-Shows logged-in user info and a logout button.
+Shows logged-in user info, subscription/plan details, and a logout button.
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPainter, QPixmap, QPainterPath
 
 from app.i18n import tr
+from app.auth import service as auth_service
 
 
 def _initials_pixmap(full_name: str, size: int = 56) -> QPixmap:
@@ -33,6 +34,31 @@ def _initials_pixmap(full_name: str, size: int = 56) -> QPixmap:
     return px
 
 
+_STATUS_COLOR = {
+    "active":   "#4caf82",
+    "trialing": "#7b9fe0",
+    "lifetime": "#c0a060",
+    "past_due": "#e07b7b",
+    "canceled": "#888888",
+    "unpaid":   "#e07b7b",
+}
+
+_BILLING_KEY = {
+    "monthly":  "auth.billing_monthly",
+    "annual":   "auth.billing_annual",
+    "lifetime": "auth.billing_lifetime",
+}
+
+_STATUS_KEY = {
+    "trialing": "auth.status_trialing",
+    "active":   "auth.status_active",
+    "past_due": "auth.status_past_due",
+    "canceled": "auth.status_canceled",
+    "unpaid":   "auth.status_unpaid",
+    "lifetime": "auth.status_lifetime",
+}
+
+
 class UserPanelDialog(QDialog):
     """
     Centered modal showing user profile info and a logout button.
@@ -44,6 +70,7 @@ class UserPanelDialog(QDialog):
     def __init__(self, user, parent=None):
         super().__init__(parent)
         self._user = user
+        self._sub = auth_service.get_subscription(user.id)
         self.setWindowTitle(tr("auth.my_account"))
         self.setFixedWidth(340)
         self.setWindowFlags(
@@ -85,25 +112,23 @@ class UserPanelDialog(QDialog):
         root.addLayout(header)
 
         root.addSpacing(20)
-
-        # Divider
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet("background-color: #222222; border: none;")
-        root.addWidget(div)
-
+        root.addWidget(self._divider())
         root.addSpacing(16)
 
-        # Info rows
+        # Account info
         phone_text = self._user.phone or "—"
         self._add_row(root, tr("auth.phone"), phone_text)
 
         since = self._user.created_at
-        if hasattr(since, "strftime"):
-            since_str = since.strftime("%d/%m/%Y")
-        else:
-            since_str = str(since)[:10]
+        since_str = since.strftime("%d/%m/%Y") if hasattr(since, "strftime") else str(since)[:10]
         self._add_row(root, tr("auth.member_since"), since_str)
+
+        root.addSpacing(16)
+        root.addWidget(self._divider())
+        root.addSpacing(16)
+
+        # Subscription section
+        self._build_subscription(root)
 
         root.addSpacing(20)
 
@@ -113,6 +138,60 @@ class UserPanelDialog(QDialog):
         btn.setObjectName("danger")
         btn.clicked.connect(self._on_logout)
         root.addWidget(btn)
+
+    def _build_subscription(self, layout):
+        sub = self._sub
+
+        if sub is None:
+            lbl = QLabel(tr("auth.no_subscription"))
+            lbl.setObjectName("muted")
+            layout.addWidget(lbl)
+            layout.addSpacing(8)
+            return
+
+        # Plan name + status badge on the same row
+        plan_row = QHBoxLayout()
+        plan_row.setSpacing(8)
+
+        plan_key = QLabel(tr("auth.plan"))
+        plan_key.setObjectName("muted")
+        plan_row.addWidget(plan_key)
+        plan_row.addStretch()
+
+        plan_name = QLabel(sub.plan_name)
+        plan_name.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
+        plan_row.addWidget(plan_name)
+
+        status_lbl = QLabel(tr(_STATUS_KEY.get(sub.status, sub.status)))
+        color = _STATUS_COLOR.get(sub.status, "#888888")
+        status_lbl.setStyleSheet(
+            f"color: {color}; background: {color}22; border-radius: 4px;"
+            "padding: 1px 6px; font-size: 10px;"
+        )
+        plan_row.addWidget(status_lbl)
+        layout.addLayout(plan_row)
+        layout.addSpacing(8)
+
+        # Billing period
+        billing_label = tr(_BILLING_KEY.get(sub.billing_period, sub.billing_period))
+        self._add_row(layout, tr("auth.billing_period"), billing_label)
+
+        # Trial / renewal / expiry date
+        if sub.status == "trialing" and sub.trial_ends_at:
+            date_str = sub.trial_ends_at.strftime("%d/%m/%Y")
+            self._add_row(layout, tr("auth.trial_ends"), date_str)
+        elif sub.status == "canceled" and sub.current_period_end:
+            date_str = sub.current_period_end.strftime("%d/%m/%Y")
+            self._add_row(layout, tr("auth.expires_on"), date_str)
+        elif sub.current_period_end and sub.billing_period != "lifetime":
+            date_str = sub.current_period_end.strftime("%d/%m/%Y")
+            self._add_row(layout, tr("auth.renews_on"), date_str)
+
+    def _divider(self) -> QFrame:
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet("background-color: #222222; border: none;")
+        return div
 
     def _add_row(self, layout, key: str, value: str):
         row = QHBoxLayout()
