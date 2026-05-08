@@ -47,6 +47,7 @@ _TRANSLATIONS = {
     "action.hydrology": {"es": "Análisis hidrológico...", "en": "Hydrological analysis..."},
     "action.vegetation": {"es": "Análisis de vegetación...", "en": "Vegetation analysis..."},
     "action.measurements": {"es": "Historial de mediciones", "en": "Measurements history"},
+    "action.classification_history": {"es": "Historial de clasificaciones", "en": "Classification history"},
     "action.multitemporal": {"es": "Análisis multitemporal...", "en": "Multitemporal analysis..."},
 
     # --- Tools ---
@@ -623,6 +624,32 @@ _TRANSLATIONS = {
     "hist.copied_message": {"es": "Historial copiado ({} entradas).", "en": "History copied ({} entries)."},
     "hist.clear_confirm_title": {"es": "Confirmar", "en": "Confirm"},
     "hist.clear_confirm_message": {"es": "¿Eliminar {} mediciones del historial?", "en": "Delete {} measurements from history?"},
+
+    # --- Classification History Dialog ---
+    "class_hist.title": {"es": "Historial de clasificaciones", "en": "Classification History"},
+    "class_hist.smrf": {"es": "SMRF", "en": "SMRF"},
+    "class_hist.csf": {"es": "CSF", "en": "CSF"},
+    "class_hist.pmf": {"es": "PMF", "en": "PMF"},
+    "class_hist.ai": {"es": "IA (AI)", "en": "AI"},
+    "class_hist.unknown": {"es": "Desconocido", "en": "Unknown"},
+    "class_hist.unclassified": {"es": "Sin clasificar", "en": "Unclassified"},
+    "class_hist.ground": {"es": "Terreno", "en": "Ground"},
+    "class_hist.low_veg": {"es": "Vegetación baja", "en": "Low vegetation"},
+    "class_hist.med_veg": {"es": "Vegetación media", "en": "Medium vegetation"},
+    "class_hist.high_veg": {"es": "Vegetación alta", "en": "High vegetation"},
+    "class_hist.building": {"es": "Edificio", "en": "Building"},
+    "class_hist.noise": {"es": "Ruido", "en": "Noise"},
+    "class_hist.total_points": {"es": "Total de puntos", "en": "Total points"},
+    "class_hist.post_process": {"es": "Post-procesado", "en": "Post-processing"},
+    "class_hist.count_zero": {"es": "0 clasificaciones", "en": "0 classifications"},
+    "class_hist.count_one": {"es": "1 clasificación", "en": "1 classification"},
+    "class_hist.count": {"es": "{} clasificaciones", "en": "{} classifications"},
+    "class_hist.classifications": {"es": "CLASIFICACIONES", "en": "CLASSIFICATIONS"},
+    "class_hist.col_algorithm": {"es": "ALGORITMO", "en": "ALGORITHM"},
+    "class_hist.empty_message": {"es": "Aún no hay clasificaciones registradas.\nUse la herramienta de clasificación de terreno.", "en": "No classifications recorded yet.\nUse the terrain classification tool."},
+    "class_hist.placeholder": {"es": "Seleccione una clasificación para ver los detalles", "en": "Select a classification to view details"},
+    "class_hist.results_title": {"es": "Clasificación completada", "en": "Classification completed"},
+    "class_hist.results_message": {"es": "Clasificación finalizada con éxito.\n\nPuntos de terreno: {}\nTotal de puntos: {}\n\n¿Desea ver el historial de clasificaciones?", "en": "Classification completed successfully.\n\nGround points: {}\nTotal points: {}\n\nWould you like to view the classification history?"},
 }
 
 # ---------------------------------------------------------------------------

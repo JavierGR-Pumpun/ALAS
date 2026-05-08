@@ -33,6 +33,7 @@ class ClassificationDialog(QDialog):
         super().__init__(parent)
         self.pc = point_cloud
         self._result = None
+        self._classification_data = None
         self.setWindowTitle(tr("action.classify"))
         self.setMinimumSize(450, 500)
         self._setup_ui()
@@ -218,6 +219,11 @@ class ClassificationDialog(QDialog):
                     slope=self._smrf_slope.value(),
                     threshold=self._smrf_threshold.value(),
                 )
+                self._classification_data = {
+                    "window": self._smrf_window.value(),
+                    "slope": self._smrf_slope.value(),
+                    "threshold": self._smrf_threshold.value(),
+                }
             elif algo == "csf":
                 self._result = classify_ground_csf(
                     self.pc,
@@ -225,12 +231,21 @@ class ClassificationDialog(QDialog):
                     rigidness=self._csf_rigidness.value(),
                     threshold=self._csf_threshold.value(),
                 )
+                self._classification_data = {
+                    "resolution": self._csf_resolution.value(),
+                    "rigidness": self._csf_rigidness.value(),
+                    "threshold": self._csf_threshold.value(),
+                }
             elif algo == "pmf":
                 self._result = classify_ground_pmf(
                     self.pc,
                     max_window_size=self._pmf_max_window.value(),
                     slope=self._pmf_slope.value(),
                 )
+                self._classification_data = {
+                    "max_window_size": self._pmf_max_window.value(),
+                    "slope": self._pmf_slope.value(),
+                }
             elif algo == "ai":
                 model_path = self._ai_model_path.text().strip()
                 if not model_path:
@@ -247,11 +262,25 @@ class ClassificationDialog(QDialog):
                     model_path=model_path,
                     batch_size=self._ai_batch_size.value(),
                 )
+                self._classification_data = {
+                    "model_path": model_path,
+                    "batch_size": self._ai_batch_size.value(),
+                }
 
-            # Post-ground vegetation/building classification (SMRF/CSF/PMF only)
+            post_process = False
             if algo != "ai" and self._classify_above.isChecked() and self._result is not None:
                 self.pc.classification = self._result
                 self._result = classify_above_ground(self.pc)
+                post_process = True
+
+            if self._classification_data is not None:
+                self._classification_data["post_process"] = post_process
+                self._classification_data["algorithm"] = algo
+                self._classification_data["total_points"] = self.pc.point_count
+                for class_code in range(8):
+                    count = int(np.sum(self._result == class_code))
+                    self._classification_data[f"class_{class_code}"] = count
+                self._classification_data["ground_points"] = int(np.sum(self._result == 2))
 
             self.accept()
 
@@ -280,3 +309,6 @@ class ClassificationDialog(QDialog):
 
     def get_result(self):
         return self._result
+
+    def get_classification_data(self):
+        return self._classification_data

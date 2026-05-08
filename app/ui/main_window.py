@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         self._area_dialog = None
         self._distance_dialog = None
         self._measurements_dialog = None
+        self._classification_history_dialog = None
 
         # Setup UI
         self._setup_window()
@@ -220,6 +221,13 @@ class MainWindow(QMainWindow):
         act_classify = QAction(tr("action.classify"), self)
         act_classify.triggered.connect(self._show_classification_dialog)
         menu_proc.addAction(act_classify)
+
+        act_class_history = QAction(tr("action.classification_history"), self)
+        act_class_history.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        act_class_history.triggered.connect(self._show_classification_history)
+        menu_proc.addAction(act_class_history)
+
+        menu_proc.addSeparator()
 
         act_dem = QAction(tr("action.generate_dem"), self)
         act_dem.triggered.connect(self._show_dem_dialog)
@@ -601,6 +609,23 @@ class MainWindow(QMainWindow):
                 entry.layer.classification = result
                 self.viewport.update_colorization(entry.layer, "classification")
                 self._update_status(tr("success.classification_done"))
+                
+                classification_data = dlg.get_classification_data()
+                if classification_data is not None:
+                    algo = classification_data.get("algorithm", "unknown")
+                    self._record_classification(algo, classification_data)
+                    
+                    ground_points = classification_data.get("ground_points", 0)
+                    total_points = classification_data.get("total_points", 0)
+                    
+                    reply = QMessageBox.question(
+                        self,
+                        tr("class_hist.results_title"),
+                        tr("class_hist.results_message").format(f"{ground_points:,}", f"{total_points:,}"),
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self._show_classification_history()
 
     def _show_dem_dialog(self):
         from app.ui.dialogs.dem_dialog import DEMDialog
@@ -1058,6 +1083,25 @@ class MainWindow(QMainWindow):
         dlg = self._get_measurements_dialog()
         dlg.add_measurement(mtype, data)
         logger.info(f"Measurement '{mtype}' registered in history.")
+
+    # --- Classification history ---
+    def _get_classification_history_dialog(self):
+        """Create the classification history dialog the first time (lazy)."""
+        if self._classification_history_dialog is None:
+            from app.ui.dialogs.classification_history_dialog import ClassificationHistoryDialog
+            self._classification_history_dialog = ClassificationHistoryDialog(self)
+        return self._classification_history_dialog
+
+    def _show_classification_history(self):
+        """Open the classification history modal."""
+        dlg = self._get_classification_history_dialog()
+        dlg.show_and_raise()
+
+    def _record_classification(self, algo: str, data: dict):
+        """Save a classification to history (does not open the modal)."""
+        dlg = self._get_classification_history_dialog()
+        dlg.add_classification(algo, data)
+        logger.info(f"Classification '{algo}' registered in history.")
 
     # --- Export ---
     def _show_export_dialog(self):

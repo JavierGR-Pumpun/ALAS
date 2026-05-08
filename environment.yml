@@ -17,7 +17,7 @@ dependencies:
   - fiona
   - geopandas
   # --- Scientific ---
-  - numpy
+  - numpy<2
   - scipy
   - scikit-image
   - matplotlib
