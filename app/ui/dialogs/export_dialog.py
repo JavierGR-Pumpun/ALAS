@@ -21,6 +21,8 @@ from app.processing.exporters import (
 from app.i18n import tr
 from app.logger import get_logger
 from app.log import log
+from app.ui.widgets import LoadingOverlay
+from app.processing.workers import ProcessingWorker
 
 logger = get_logger("ui.export_dialog")
 
@@ -102,6 +104,9 @@ class ExportDialog(QDialog):
         # Initialize formats
         self._on_layer_changed(0)
 
+        self._loading_overlay = LoadingOverlay(self)
+        self._loading_overlay.hide()
+
     def _on_layer_changed(self, index: int):
         self._format_combo.clear()
         layer_idx = self._layer_combo.currentData()
@@ -138,7 +143,10 @@ class ExportDialog(QDialog):
         if not path:
             return
 
-        try:
+        gen_pdf = self._gen_pdf.isChecked()
+        pdf_title = self._pdf_title.text()
+        
+        def _compute():
             if entry.is_point_cloud:
                 export_point_cloud(entry.layer, path,
                                     compress=(fmt == "laz"))
@@ -150,7 +158,7 @@ class ExportDialog(QDialog):
                     export_mesh_obj(vertices, faces, path)
 
             # PDF report
-            if self._gen_pdf.isChecked():
+            if gen_pdf:
                 pdf_path = Path(path).with_suffix(".pdf")
                 stats = {}
                 if entry.is_point_cloud:
@@ -173,12 +181,24 @@ class ExportDialog(QDialog):
                         metadata[tr("export.metadata_crs")] = f"EPSG:{entry.layer.crs_epsg}"
 
                 export_pdf_report(
-                    self._pdf_title.text(), metadata, stats, [], str(pdf_path)
+                    pdf_title, metadata, stats, [], str(pdf_path)
                 )
-
-            QMessageBox.information(self, tr("export.success"),
-                                     f"{tr('export.exported_message')} {path}")
-            self.accept()
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("error.export_failed"), str(e))
+            return path
+        
+        self._loading_overlay.show_loading()
+        
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_export_result)
+        worker.signals.error.connect(self._on_export_error)
+        worker.signals.finished.connect(lambda: self._loading_overlay.hide_loading())
+        
+        from PyQt6.QtCore import QThreadPool
+        QThreadPool.globalInstance().start(worker)
+    
+    def _on_export_result(self, path):
+        QMessageBox.information(self, tr("export.success"),
+                                 f"{tr('export.exported_message')} {path}")
+        self.accept()
+    
+    def _on_export_error(self, error_msg: str):
+        QMessageBox.critical(self, tr("error.export_failed"), error_msg)

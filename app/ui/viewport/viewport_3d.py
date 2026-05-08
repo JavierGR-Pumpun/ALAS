@@ -239,28 +239,52 @@ class Viewport3D(QWidget):
         if is_flood:
             z = np.asarray(terrain_arr, dtype=np.float32).copy()
             z[z == raster.nodata] = np.nan
+
             depth = data.astype(np.float32).copy()
             depth[depth == raster.nodata] = np.nan
             depth[depth <= 0.0] = np.nan
-        else:
-            z = data.astype(np.float32).copy()
-            z[z == raster.nodata] = np.nan
 
-        grid = pv.StructuredGrid(xx, yy, z)
+            self._remove_actor(name)
 
-        self._remove_actor(name)
+            if not np.any(np.isfinite(depth)):
+                # Water level below terrain — nothing flooded, nothing to show.
+                logger.info(f"Flood layer '{name}': no flooded cells at this water level")
+                return
 
-        if is_flood:
-            grid["Depth"] = depth.ravel(order="F")
+            grid = pv.StructuredGrid(xx, yy, z)
+
+            # Build per-point RGBA: semi-transparent blue where flooded,
+            # fully transparent elsewhere.  Terrain shape comes from z so
+            # the surface follows the DTM and can be overlaid for comparison.
+            n_pts = rows * cols
+            rgba = np.zeros((n_pts, 4), dtype=np.uint8)
+            depth_flat = depth.ravel(order="F")
+            flooded = np.isfinite(depth_flat)
+
+            valid_depth = depth_flat[flooded]
+            vmax = float(np.nanpercentile(valid_depth, 99.0))
+            norm = np.clip(valid_depth / max(vmax, 0.01), 0.0, 1.0)
+            # Light-blue (shallow) → dark-blue (deep)
+            rgba[flooded, 0] = np.interp(norm, [0, 1], [173,   8]).astype(np.uint8)
+            rgba[flooded, 1] = np.interp(norm, [0, 1], [216,  48]).astype(np.uint8)
+            rgba[flooded, 2] = np.interp(norm, [0, 1], [230, 107]).astype(np.uint8)
+            rgba[flooded, 3] = 200  # ~78 % opacity so terrain shape shows through
+
+            grid["FloodColor"] = rgba
             actor = self.plotter.add_mesh(
                 grid,
-                scalars="Depth",
-                cmap="Blues",
-                nan_opacity=0,
+                scalars="FloodColor",
+                rgba=True,
                 show_scalar_bar=False,
                 name=name,
             )
         else:
+            z = data.astype(np.float32).copy()
+            z[z == raster.nodata] = np.nan
+
+            grid = pv.StructuredGrid(xx, yy, z)
+            self._remove_actor(name)
+
             grid["Elevation"] = z.ravel(order="F")
             actor = self.plotter.add_mesh(
                 grid,
@@ -270,6 +294,7 @@ class Viewport3D(QWidget):
                 show_scalar_bar=False,
                 name=name,
             )
+
         self._current_actors[name] = actor
 
     # ------------------------------------------------------------------

@@ -24,7 +24,8 @@ from app.ui.panels.properties_panel import PropertiesPanel
 from app.ui.panels.tools_panel import ToolsPanel
 from app.ui.panels.statistics_panel import StatisticsPanel
 from app.ui.panels.log_panel import LogPanel
-from app.processing.workers import FileLoadWorker, ProcessingWorkerSignals
+from app.processing.workers import FileLoadWorker, ProcessingWorker, ProcessingWorkerSignals
+from app.ui.widgets import LoadingOverlay
 from app.config import (
     APP_NAME, APP_FULL_NAME, APP_VERSION,
     POINT_CLOUD_FILTER, RASTER_FILTER, POINT_CLOUD_EXTENSIONS,
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self._area_dialog = None
         self._distance_dialog = None
         self._measurements_dialog = None
+        self._classification_history_dialog = None
 
         # Setup UI
         self._setup_window()
@@ -97,6 +99,9 @@ class MainWindow(QMainWindow):
     def _setup_viewport(self):
         self.viewport = Viewport3D(self)
         self.setCentralWidget(self.viewport)
+        
+        self._loading_overlay = LoadingOverlay(self)
+        self._loading_overlay.hide()
 
     # ==================================================================
     # Dock Panels
@@ -141,7 +146,7 @@ class MainWindow(QMainWindow):
     def _setup_menu_bar(self):
         menubar = self.menuBar()
 
-        # --- Archivo ---
+        # --- File ---
         menu_file = menubar.addMenu(tr("menu.file"))
 
         act_open = QAction(tr("action.open"), self)
@@ -180,7 +185,7 @@ class MainWindow(QMainWindow):
         act_exit.triggered.connect(self.close)
         menu_file.addAction(act_exit)
 
-        # --- Vista ---
+        # --- View ---
         menu_view = menubar.addMenu(tr("menu.view"))
 
         act_reset = QAction(tr("action.reset_view"), self)
@@ -214,12 +219,19 @@ class MainWindow(QMainWindow):
         act_en.triggered.connect(lambda: self._change_language("en"))
         menu_lang.addAction(act_en)
 
-        # --- Procesamiento ---
+        # --- Process ---
         menu_proc = menubar.addMenu(tr("menu.process"))
 
         act_classify = QAction(tr("action.classify"), self)
         act_classify.triggered.connect(self._show_classification_dialog)
         menu_proc.addAction(act_classify)
+
+        act_class_history = QAction(tr("action.classification_history"), self)
+        act_class_history.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        act_class_history.triggered.connect(self._show_classification_history)
+        menu_proc.addAction(act_class_history)
+
+        menu_proc.addSeparator()
 
         act_dem = QAction(tr("action.generate_dem"), self)
         act_dem.triggered.connect(self._show_dem_dialog)
@@ -266,7 +278,7 @@ class MainWindow(QMainWindow):
         act_multi.triggered.connect(self._show_multitemporal_dialog)
         menu_analysis.addAction(act_multi)
 
-        # --- Herramientas ---
+        # --- Tools ---
         menu_tools = menubar.addMenu(tr("menu.tools"))
 
         act_profile = QAction(tr("action.profile"), self)
@@ -292,11 +304,28 @@ class MainWindow(QMainWindow):
         act_history.triggered.connect(self._show_measurements_history)
         menu_tools.addAction(act_history)
 
-        # --- Ayuda ---
+        # --- Help ---
         menu_help = menubar.addMenu(tr("menu.help"))
-        act_about = QAction(tr("dialog.about_title"), self)
-        act_about.triggered.connect(self._show_about)
-        menu_help.addAction(act_about)
+        act_about_help = QAction(tr("dialog.about_title"), self)
+        act_about_help.setMenuRole(QAction.MenuRole.NoRole)
+        act_about_help.triggered.connect(self._show_about)
+        menu_help.addAction(act_about_help)
+
+        # --- More ---
+        menu_more = menubar.addMenu(tr("menu.more"))
+
+        act_profile = QAction(tr("action.my_profile"), self)
+        act_profile.setMenuRole(QAction.MenuRole.NoRole)
+        act_profile.triggered.connect(self._show_profile)
+        menu_more.addAction(act_profile)
+
+        menu_more.addSeparator()
+
+        act_settings = QAction(tr("action.settings"), self)
+        act_settings.setMenuRole(QAction.MenuRole.NoRole)
+        act_settings.setShortcut(QKeySequence("Ctrl+,"))
+        act_settings.triggered.connect(self._show_settings)
+        menu_more.addAction(act_settings)
 
         # Avatar button — far right of the menu bar
         self._user_btn = QPushButton()
@@ -474,8 +503,10 @@ class MainWindow(QMainWindow):
         worker = FileLoadWorker(file_path, loader_func, **kwargs)
         
         # Connect signals
+        worker.signals.started.connect(lambda: self._loading_overlay.show_loading())
         worker.signals.result.connect(lambda res: self._on_file_loaded(res, ext, file_path))
         worker.signals.error.connect(lambda err: self._on_file_load_error(err, file_path))
+        worker.signals.finished.connect(lambda: self._loading_overlay.hide_loading())
         
         self.thread_pool.start(worker)
 
@@ -504,6 +535,23 @@ class MainWindow(QMainWindow):
     def _on_file_load_error(self, error_msg, file_path):
         logger.error(f"Error loading {file_path}: {error_msg}")
         QMessageBox.critical(self, tr("error.processing_failed"), str(error_msg))
+        self._update_status(tr("status.ready"))
+
+    def _run_processing(self, func, *args, on_result, on_error=None, **kwargs):
+        """Run func in a thread with loading overlay. on_result/on_error called on main thread."""
+        self._update_status(tr("status.processing"))
+        worker = ProcessingWorker(func, *args, **kwargs)
+        worker.signals.started.connect(self._loading_overlay.show_loading)
+        worker.signals.result.connect(on_result)
+        worker.signals.error.connect(on_error if on_error is not None else self._on_processing_error)
+        worker.signals.finished.connect(self._on_processing_finished)
+        self.thread_pool.start(worker)
+
+    def _on_processing_error(self, error_msg: str):
+        QMessageBox.critical(self, tr("crs.error"), error_msg)
+
+    def _on_processing_finished(self):
+        self._loading_overlay.hide_loading()
         self._update_status(tr("status.ready"))
 
     def _prompt_crs_assignment(self, pc: PointCloudData):
@@ -601,6 +649,23 @@ class MainWindow(QMainWindow):
                 entry.layer.classification = result
                 self.viewport.update_colorization(entry.layer, "classification")
                 self._update_status(tr("success.classification_done"))
+                
+                classification_data = dlg.get_classification_data()
+                if classification_data is not None:
+                    algo = classification_data.get("algorithm", "unknown")
+                    self._record_classification(algo, classification_data)
+                    
+                    ground_points = classification_data.get("ground_points", 0)
+                    total_points = classification_data.get("total_points", 0)
+                    
+                    reply = QMessageBox.question(
+                        self,
+                        tr("class_hist.results_title"),
+                        tr("class_hist.results_message").format(f"{ground_points:,}", f"{total_points:,}"),
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self._show_classification_history()
 
     def _show_dem_dialog(self):
         from app.ui.dialogs.dem_dialog import DEMDialog
@@ -654,22 +719,20 @@ class MainWindow(QMainWindow):
         if len(clouds) < 2:
             QMessageBox.information(self, tr("dialog.info"), tr("msg.at_least_2_clouds"))
             return
-        merged = PointCloudData.merge(clouds, "merged")
-        self.layer_manager.add_layer(merged)
-        self.viewport.reset_camera()
+
+        def _on_result(merged):
+            self.layer_manager.add_layer(merged)
+            self.viewport.reset_camera()
+
+        self._run_processing(PointCloudData.merge, clouds, "merged", on_result=_on_result)
 
     def _filter_noise(self):
         entry = self.layer_manager.active_layer
         if not entry or not entry.is_point_cloud:
             return
         from app.processing.preprocessing import filter_noise
-        try:
-            self._update_status(tr("status.processing"))
-            result = filter_noise(entry.layer)
-            idx = self.layer_manager.add_layer(result)
-            self._update_status(tr("status.ready"))
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+        self._run_processing(filter_noise, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result))
 
     def _decimate_cloud(self):
         entry = self.layer_manager.active_layer
@@ -679,18 +742,21 @@ class MainWindow(QMainWindow):
         voxel, ok = QInputDialog.getDouble(
             self, tr("msg.decimate_title"), tr("msg.voxel_size"), 0.5, 0.01, 100.0, 2
         )
-        if ok:
-            from app.processing.preprocessing import decimate
-            result = decimate(entry.layer, voxel_size=voxel)
-            self.layer_manager.add_layer(result)
+        if not ok:
+            return
+        from app.processing.preprocessing import decimate
+        self._run_processing(decimate, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result),
+                             voxel_size=voxel)
 
     def _remove_overlap(self):
         entry = self.layer_manager.active_layer
         if not entry or not entry.is_point_cloud:
             return
         from app.processing.preprocessing import handle_overlap
-        result = handle_overlap(entry.layer, strategy="remove")
-        self.layer_manager.add_layer(result)
+        self._run_processing(handle_overlap, entry.layer,
+                             on_result=lambda result: self.layer_manager.add_layer(result),
+                             strategy="remove")
 
     # --- Tools ---
     def _start_profile_tool(self):
@@ -876,10 +942,8 @@ class MainWindow(QMainWindow):
         if len(vertices) < 3:
             return
 
-        # Draw visual closing line in viewport
         self.viewport.draw_closing_line()
 
-        # Calculate 2D perimeter
         pts = np.array(vertices)
         diffs = np.diff(pts[:, :2], axis=0)
         seg_lengths = np.sqrt((diffs ** 2).sum(axis=1))
@@ -888,42 +952,47 @@ class MainWindow(QMainWindow):
         )
         perimeter = float(seg_lengths.sum() + closing)
 
-        # Search for DEM (first available raster)
         rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
-        used_raster = bool(rasters)
 
-        if used_raster:
+        if rasters:
             from app.processing.measurements import measure_area
-            try:
-                polygon_xy = pts[:, :2]  # (N, 2)
-                res = measure_area(rasters[0].layer, polygon_xy)
-                plan_m2   = res["planimetric_area_m2"]
-                surf_m2   = res["surface_area_m2"]
-            except Exception as e:
-                logger.error(f"Error calculating area with DEM: {e}")
-                used_raster = False
-                plan_m2 = self._shoelace_area(pts[:, :2])
-                surf_m2 = plan_m2
-        else:
-            # Without DEM: Shoelace on XY
-            plan_m2 = self._shoelace_area(pts[:, :2])
-            surf_m2 = plan_m2
+            polygon_xy = pts[:, :2]
+            raster_layer = rasters[0].layer
 
+            def _on_area_result(res):
+                self._finish_area_calculation(
+                    vertices, res["planimetric_area_m2"], res["surface_area_m2"],
+                    perimeter, True
+                )
+
+            def _on_area_error(e):
+                logger.error(f"Error calculating area with DEM: {e}")
+                fallback = self._shoelace_area(pts[:, :2])
+                self._finish_area_calculation(vertices, fallback, fallback, perimeter, False)
+
+            self._run_processing(
+                measure_area, raster_layer, polygon_xy,
+                on_result=_on_area_result,
+                on_error=_on_area_error,
+            )
+        else:
+            plan_m2 = self._shoelace_area(pts[:, :2])
+            self._finish_area_calculation(vertices, plan_m2, plan_m2, perimeter, False)
+
+    def _finish_area_calculation(self, vertices, plan_m2, surf_m2, perimeter, used_raster):
+        if self._area_dialog is None:
+            return
         self._area_dialog.show_results(
             plan_m2=plan_m2,
             surf_m2=surf_m2,
             perimeter_m=perimeter,
             used_raster=used_raster,
         )
-        self._update_status(
-            tr("msg.area_calculated").format(plan_m2, perimeter)
-        )
+        self._update_status(tr("msg.area_calculated").format(plan_m2, perimeter))
         logger.info(
             f"Area: plan={plan_m2:.2f}m² surf={surf_m2:.2f}m² "
             f"per={perimeter:.2f}m verts={len(vertices)}"
         )
-
-        # ── Save to history ──────────────────────────────────────
         verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
         self._record_measurement("area", {
             "planimetric_area_m2": plan_m2,
@@ -991,44 +1060,33 @@ class MainWindow(QMainWindow):
             return
 
         z_ref = self._volume_dialog.get_reference_z()
-
-        # Draw visual closing line in viewport
         self.viewport.draw_closing_line()
 
-        # Search for DEM (first available raster)
         rasters = [e for e in self.layer_manager.get_all_entries() if e.is_raster]
         if not rasters:
             self._volume_dialog.show_error(tr("msg.volume_no_dem"))
             return
 
         from app.processing.measurements import calculate_volume
-        raster_entry = rasters[0]
-        polygon = np.array(vertices)
-        polygon_xy = polygon[:, :2]  # Extract only X and Y coordinates (N, 2)
+        raster_layer = rasters[0].layer
+        polygon_xy = np.array(vertices)[:, :2]
 
-        try:
-            res = calculate_volume(raster_entry.layer, z_ref, polygon_xy)
-            cut = res['cut_volume_m3']
-            fill = res['fill_volume_m3']
-            net = res['net_volume_m3']
-            area = res['area_m2']
+        def _do_volume():
+            return calculate_volume(raster_layer, z_ref, polygon_xy)
 
-            self._volume_dialog.show_results(cut, fill, net, area)
-            self._update_status(tr("msg.volume_calculated").format(net, z_ref))
-
-            # Draw the 3D region in the viewport
+        def _on_volume_result(res):
+            if not hasattr(self, "_volume_dialog") or self._volume_dialog is None:
+                return
+            self._volume_dialog.show_results(
+                res['cut_volume_m3'], res['fill_volume_m3'],
+                res['net_volume_m3'], res['area_m2']
+            )
+            self._update_status(tr("msg.volume_calculated").format(res['net_volume_m3'], z_ref))
             if 'grid_x' in res:
                 self.viewport.display_volume_region(
-                    res['grid_x'], 
-                    res['grid_y'],
-                    res['grid_z'],
-                    z_ref
+                    res['grid_x'], res['grid_y'], res['grid_z'], z_ref
                 )
-
-            # Remove heavy data before saving to history
             hist_data = {k: v for k, v in res.items() if k not in ('grid_x', 'grid_y', 'grid_z')}
-
-            # Save to history
             verts_as_dicts = [{"x": v[0], "y": v[1], "z": v[2]} for v in vertices]
             self._record_measurement("volume", {
                 **hist_data,
@@ -1036,9 +1094,13 @@ class MainWindow(QMainWindow):
                 "num_vertices": len(vertices),
                 "vertices": verts_as_dicts,
             })
-        except Exception as e:
+
+        def _on_volume_error(e):
             logger.error(f"Error calculating volume: {e}")
-            self._volume_dialog.show_error(f"Error: {str(e)}")
+            if hasattr(self, "_volume_dialog") and self._volume_dialog is not None:
+                self._volume_dialog.show_error(f"Error: {e}")
+
+        self._run_processing(_do_volume, on_result=_on_volume_result, on_error=_on_volume_error)
 
     # --- Measurements history ---
     def _get_measurements_dialog(self):
@@ -1059,6 +1121,25 @@ class MainWindow(QMainWindow):
         dlg.add_measurement(mtype, data)
         logger.info(f"Measurement '{mtype}' registered in history.")
 
+    # --- Classification history ---
+    def _get_classification_history_dialog(self):
+        """Create the classification history dialog the first time (lazy)."""
+        if self._classification_history_dialog is None:
+            from app.ui.dialogs.classification_history_dialog import ClassificationHistoryDialog
+            self._classification_history_dialog = ClassificationHistoryDialog(self)
+        return self._classification_history_dialog
+
+    def _show_classification_history(self):
+        """Open the classification history modal."""
+        dlg = self._get_classification_history_dialog()
+        dlg.show_and_raise()
+
+    def _record_classification(self, algo: str, data: dict):
+        """Save a classification to history (does not open the modal)."""
+        dlg = self._get_classification_history_dialog()
+        dlg.add_classification(algo, data)
+        logger.info(f"Classification '{algo}' registered in history.")
+
     # --- Export ---
     def _show_export_dialog(self):
         from app.ui.dialogs.export_dialog import ExportDialog
@@ -1075,14 +1156,32 @@ class MainWindow(QMainWindow):
 
     # --- About ---
     def _show_about(self):
-        QMessageBox.about(
-            self,
-            tr("dialog.about_title"),
-            f"<h2>{APP_NAME} v{APP_VERSION}</h2>"
-            f"<p>{APP_FULL_NAME}</p>"
-            f"<p>{tr('dialog.about_text')}</p>"
-            f"<p>{tr('msg.app_info')}</p>"
-        )
+        from app.ui.dialogs.about_dialog import AboutDialog
+        dlg = AboutDialog(self)
+        dlg.exec()
+
+    # --- Profile ---
+    def _show_profile(self):
+        if not self._current_user:
+            QMessageBox.information(self, tr("dialog.info"), tr("auth.my_account"))
+            return
+        self._show_user_panel()
+
+    # --- Settings ---
+    def _show_settings(self):
+        from app.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self.preferences, self)
+        dlg.settings_changed.connect(self._on_settings_changed)
+        dlg.exec()
+
+    def _on_settings_changed(self, values: dict):
+        bg = values.get("background_color")
+        if bg and hasattr(self.viewport, "set_background_color"):
+            self.viewport.set_background_color(bg)
+        pt = values.get("default_point_size")
+        if pt:
+            self.viewport.set_point_size(pt)
+        self.preferences.set("language", values.get("language", "es"))
 
     # --- Login gate ---
     def showEvent(self, event):

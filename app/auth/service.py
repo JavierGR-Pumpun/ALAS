@@ -29,6 +29,15 @@ class User:
     created_at: datetime.datetime
 
 
+@dataclass
+class Subscription:
+    plan_name: str
+    billing_period: str  # monthly | annual | lifetime
+    status: str          # trialing | active | past_due | canceled | unpaid | lifetime
+    current_period_end: Optional[datetime.datetime]
+    trial_ends_at: Optional[datetime.datetime]
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -123,6 +132,39 @@ def verify_session(token: str) -> Optional[User]:
             return User(*row)
     except Exception as e:
         logger.warning(f"Session verify error: {e}")
+    return None
+
+
+def get_subscription(user_id: int) -> Optional[Subscription]:
+    """Return the most recent active/trialing subscription for the user, or None."""
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.name, p.billing_period, s.status,
+                       s.current_period_end, s.trial_ends_at
+                FROM subscriptions s
+                JOIN plans p ON p.id = s.plan_id
+                WHERE s.user_id = %s
+                ORDER BY
+                    CASE s.status
+                        WHEN 'active'   THEN 1
+                        WHEN 'trialing' THEN 2
+                        WHEN 'lifetime' THEN 3
+                        ELSE 4
+                    END,
+                    s.created_at DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.close()
+        if row:
+            return Subscription(*row)
+    except Exception as e:
+        logger.warning(f"get_subscription error: {e}")
     return None
 
 

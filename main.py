@@ -116,13 +116,6 @@ def main():
     _startup_prefs = UserPreferences()
     set_language(_startup_prefs.get("language", "es"))
 
-    # --- Init DB (create tables if missing) ---
-    from app.auth.db import init_db
-    try:
-        init_db()
-    except Exception as _db_err:
-        logger.warning(f"DB init skipped: {_db_err}")
-
     # --- Splash update ---
     splash.showMessage(
         tr("splash.loading_modules"),

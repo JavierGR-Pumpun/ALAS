@@ -20,6 +20,8 @@ from app.processing.classification import (
 from app.config import SMRF_DEFAULTS, CSF_DEFAULTS, PMF_DEFAULTS, MODELS_DIR
 from app.i18n import tr
 from app.logger import get_logger
+from app.ui.widgets import LoadingOverlay
+from app.processing.workers import ProcessingWorker
 
 logger = get_logger("ui.classification_dialog")
 
@@ -33,6 +35,7 @@ class ClassificationDialog(QDialog):
         super().__init__(parent)
         self.pc = point_cloud
         self._result = None
+        self._classification_data = None
         self.setWindowTitle(tr("action.classify"))
         self.setMinimumSize(450, 500)
         self._setup_ui()
@@ -186,6 +189,9 @@ class ClassificationDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+        self._loading_overlay = LoadingOverlay(self)
+        self._loading_overlay.hide()
+
     # ------------------------------------------------------------------
 
     def _on_algo_changed(self, _index: int):
@@ -209,60 +215,107 @@ class ClassificationDialog(QDialog):
 
     def _run_classification(self):
         algo = self._algo_combo.currentData()
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
+        
+        if algo == "ai":
+            model_path = self._ai_model_path.text().strip()
+            if not model_path:
+                model_path = _DEFAULT_MODEL
+            if not Path(model_path).exists():
+                QMessageBox.critical(
+                    self, tr("error.processing_failed"),
+                    f"{tr('classify.model_not_found')}\n{model_path}"
+                )
+                return
+        
+        def _compute():
             if algo == "smrf":
-                self._result = classify_ground_smrf(
+                result = classify_ground_smrf(
                     self.pc,
                     window=self._smrf_window.value(),
                     slope=self._smrf_slope.value(),
                     threshold=self._smrf_threshold.value(),
                 )
+                classification_data = {
+                    "window": self._smrf_window.value(),
+                    "slope": self._smrf_slope.value(),
+                    "threshold": self._smrf_threshold.value(),
+                }
             elif algo == "csf":
-                self._result = classify_ground_csf(
+                result = classify_ground_csf(
                     self.pc,
                     resolution=self._csf_resolution.value(),
                     rigidness=self._csf_rigidness.value(),
                     threshold=self._csf_threshold.value(),
                 )
+                classification_data = {
+                    "resolution": self._csf_resolution.value(),
+                    "rigidness": self._csf_rigidness.value(),
+                    "threshold": self._csf_threshold.value(),
+                }
             elif algo == "pmf":
-                self._result = classify_ground_pmf(
+                result = classify_ground_pmf(
                     self.pc,
                     max_window_size=self._pmf_max_window.value(),
                     slope=self._pmf_slope.value(),
                 )
+                classification_data = {
+                    "max_window_size": self._pmf_max_window.value(),
+                    "slope": self._pmf_slope.value(),
+                }
             elif algo == "ai":
                 model_path = self._ai_model_path.text().strip()
                 if not model_path:
                     model_path = _DEFAULT_MODEL
-                if not Path(model_path).exists():
-                    QApplication.restoreOverrideCursor()
-                    QMessageBox.critical(
-                        self, tr("error.processing_failed"),
-                        f"{tr('classify.model_not_found')}\n{model_path}"
-                    )
-                    return
-                self._result = classify_ai(
+                result = classify_ai(
                     self.pc,
                     model_path=model_path,
                     batch_size=self._ai_batch_size.value(),
                 )
+                classification_data = {
+                    "model_path": model_path,
+                    "batch_size": self._ai_batch_size.value(),
+                }
 
-            # Post-ground vegetation/building classification (SMRF/CSF/PMF only)
-            if algo != "ai" and self._classify_above.isChecked() and self._result is not None:
-                self.pc.classification = self._result
-                self._result = classify_above_ground(self.pc)
+            post_process = False
+            if algo != "ai" and self._classify_above.isChecked() and result is not None:
+                self.pc.classification = result
+                result = classify_above_ground(self.pc)
+                post_process = True
 
-            self.accept()
+            if classification_data is not None:
+                classification_data["post_process"] = post_process
+                classification_data["algorithm"] = algo
+                classification_data["total_points"] = self.pc.point_count
+                for class_code in range(8):
+                    count = int(np.sum(result == class_code))
+                    classification_data[f"class_{class_code}"] = count
+                classification_data["ground_points"] = int(np.sum(result == 2))
 
-        except ImportError as e:
+            return result, classification_data
+        
+        self._loading_overlay.show_loading()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        
+        worker = ProcessingWorker(_compute)
+        worker.signals.result.connect(self._on_classification_result)
+        worker.signals.error.connect(self._on_classification_error)
+        worker.signals.finished.connect(lambda: (
+            self._loading_overlay.hide_loading(),
             QApplication.restoreOverrideCursor()
+        ))
+        
+        from PyQt6.QtCore import QThreadPool
+        QThreadPool.globalInstance().start(worker)
+    
+    def _on_classification_result(self, payload):
+        self._result, self._classification_data = payload
+        self.accept()
+    
+    def _on_classification_error(self, error_msg: str):
+        if "torch" in error_msg.lower() or "pytorch" in error_msg.lower():
             QMessageBox.critical(self, tr("error.processing_failed"), tr("classify.error_torch"))
-        except Exception as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, tr("error.processing_failed"), str(e))
         else:
-            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, tr("error.processing_failed"), error_msg)
 
     def _clear_classification(self):
         if self.pc.classification is None:
@@ -280,3 +333,6 @@ class ClassificationDialog(QDialog):
 
     def get_result(self):
         return self._result
+
+    def get_classification_data(self):
+        return self._classification_data

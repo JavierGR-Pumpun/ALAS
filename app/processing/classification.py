@@ -204,6 +204,7 @@ _AI_CLASS_NAMES    = ["Ground", "Low Veg", "Med Veg", "High Veg", "Building", "N
 
 def _build_ai_model(cfg: dict):
     """Reconstruct the PointNet encoder-decoder from checkpoint config."""
+    import torch
     import torch.nn as nn
 
     num_features = cfg.get("num_features", 6)

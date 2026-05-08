@@ -137,14 +137,15 @@ def export_vector(geometries: list, attributes: list,
 
 def export_pdf_report(title: str, metadata: dict,
                        statistics: dict, screenshots: list,
-                       path: str):
+                       path: str, hydro_results: dict = None):
     """
     Generates a PDF report with statistics and screenshots.
+    hydro_results: dict with layer_type -> {'image': path, 'legend': text, 'stats': dict}
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
@@ -160,13 +161,21 @@ def export_pdf_report(title: str, metadata: dict,
     # Title style
     title_style = ParagraphStyle(
         'CustomTitle', parent=styles['Title'],
-        fontSize=24, textColor=colors.HexColor("#7c3aed"),
+        fontSize=24, textColor=colors.black,
+        spaceAfter=10
+    )
+    
+    # Subtitle style
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle', parent=styles['Normal'],
+        fontSize=12, textColor=colors.grey,
+        alignment=TA_CENTER,
         spaceAfter=20
     )
 
     # Title
     elements.append(Paragraph(title, title_style))
-    elements.append(Paragraph("ALAS — Aerial LiDAR Analysis Software", styles['Normal']))
+    elements.append(Paragraph("ALAS — Aerial LiDAR Analysis Software", subtitle_style))
     elements.append(Spacer(1, 20))
 
     # Metadata
@@ -206,6 +215,133 @@ def export_pdf_report(title: str, metadata: dict,
         ]))
         elements.append(stats_table)
         elements.append(Spacer(1, 20))
+
+    # Hydrology results with images and legends
+    if hydro_results:
+        from reportlab.graphics.shapes import Drawing, Rect
+        from reportlab.platypus import KeepTogether
+        
+        legend_style = ParagraphStyle(
+            'LegendStyle', parent=styles['Normal'],
+            fontSize=10, textColor=colors.HexColor("#333333"),
+            leftIndent=15, rightIndent=15,
+            spaceAfter=5, leading=14
+        )
+        
+        def create_color_legend(layer_type: str) -> list:
+            """Create legend with colored boxes."""
+            legend_elements = []
+            
+            color_maps = {
+                "flow_direction": [
+                    ("#1f77b4", "East (1)"),
+                    ("#ff7f0e", "Southeast (2)"),
+                    ("#2ca02c", "South (4)"),
+                    ("#d62728", "Southwest (8)"),
+                    ("#9467bd", "West (16)"),
+                    ("#8c564b", "Northwest (32)"),
+                    ("#e377c2", "North (64)"),
+                    ("#7f7f7f", "Northeast (128)")
+                ],
+                "flow_accumulation": [
+                    ("#dddddd", "Low accumulation"),
+                    ("#3a79e0", "Medium accumulation"),
+                    ("#001f3f", "High accumulation")
+                ],
+                "ponding": [
+                    ("#d2b48c", "High depth"),
+                    ("#2ca02c", "Medium depth"),
+                    ("#1f77b4", "Low depth"),
+                    ("#000080", "Very high depth")
+                ],
+                "rainfall_runoff": [
+                    ("#e8f4fd", "Weak (< 1 mm/h)"),
+                    ("#2196f3", "Moderate (1-10 mm/h)"),
+                    ("#0d47a1", "Strong (10-50 mm/h)"),
+                    ("#1a237e", "Extreme (> 50 mm/h)")
+                ],
+                "flood_simulation": [
+                    ("#aad4f5", "Shallow (< 0.5 m)"),
+                    ("#2196f3", "Moderate (0.5-2 m)"),
+                    ("#1565c0", "Deep (2-5 m)"),
+                    ("#000033", "Very deep (> 5 m)")
+                ]
+            }
+            
+            color_list = color_maps.get(layer_type, [])
+            
+            if color_list:
+                for color_hex, label in color_list:
+                    d = Drawing(0.4*cm, 0.4*cm)
+                    d.add(Rect(0, 0, 0.4*cm, 0.4*cm, 
+                              fillColor=colors.HexColor(color_hex),
+                              strokeColor=colors.grey,
+                              strokeWidth=0.5))
+                    
+                    legend_table = Table([[d, label]], colWidths=[0.6*cm, 13*cm])
+                    legend_table.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('LEFTPADDING', (0, 0), (0, 0), 0),
+                        ('LEFTPADDING', (1, 0), (1, 0), 5),
+                    ]))
+                    legend_elements.append(legend_table)
+            
+            return legend_elements
+        
+        for layer_type, result_data in hydro_results.items():
+            elements.append(PageBreak())
+            
+            # Layer title
+            layer_title = layer_type.replace('_', ' ').title()
+            elements.append(Paragraph(f"Result: {layer_title}", styles['Heading2']))
+            elements.append(Spacer(1, 10))
+            
+            # Image
+            img_path = result_data.get('image')
+            if img_path and Path(img_path).exists():
+                try:
+                    img = Image(img_path, width=15*cm, height=11.25*cm)
+                    elements.append(img)
+                    elements.append(Spacer(1, 10))
+                except Exception as e:
+                    logger.error(f"Error adding image {img_path}: {e}")
+            
+            # Legend with colors
+            elements.append(Paragraph("<b>Legend:</b>", legend_style))
+            elements.append(Spacer(1, 5))
+            
+            color_legend = create_color_legend(layer_type)
+            if color_legend:
+                for item in color_legend:
+                    elements.append(item)
+            else:
+                legend_text = result_data.get('legend', '')
+                if legend_text:
+                    legend_lines = legend_text.split('\n')
+                    for line in legend_lines:
+                        if line.strip():
+                            elements.append(Paragraph(line, legend_style))
+            
+            elements.append(Spacer(1, 15))
+            
+            # Statistics for this layer
+            layer_stats = result_data.get('stats', {})
+            if layer_stats:
+                elements.append(Paragraph("Layer Statistics", styles['Heading3']))
+                stats_data = [[k, f"{v:.4f}" if isinstance(v, float) else str(v)]
+                             for k, v in layer_stats.items()]
+                stats_table = Table(stats_data, colWidths=[7*cm, 7*cm])
+                stats_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (0, -1), colors.HexColor("#f3f4f6")),
+                    ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                elements.append(stats_table)
+                elements.append(Spacer(1, 15))
 
     # Screenshots
     for img_path in screenshots:

@@ -70,6 +70,12 @@ class CRSDialog(QDialog):
 
         layout.addStretch()
 
+        self._processing_label = QLabel(tr("status.processing"))
+        self._processing_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._processing_label.setObjectName("muted")
+        self._processing_label.setVisible(False)
+        layout.addWidget(self._processing_label)
+
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -78,10 +84,10 @@ class CRSDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_reproject = QPushButton(tr("crs.reproject_button"))
-        btn_reproject.setObjectName("primary")
-        btn_reproject.clicked.connect(self._do_reproject)
-        btn_layout.addWidget(btn_reproject)
+        self._btn_reproject = QPushButton(tr("crs.reproject_button"))
+        self._btn_reproject.setObjectName("primary")
+        self._btn_reproject.clicked.connect(self._do_reproject)
+        btn_layout.addWidget(self._btn_reproject)
 
         layout.addLayout(btn_layout)
 
@@ -93,20 +99,37 @@ class CRSDialog(QDialog):
             QMessageBox.information(self, tr("crs.same_epsg"), tr("crs.same_epsg_msg"))
             return
 
-        try:
-            result = reproject(self.pc, source, target)
+        from app.processing.workers import ProcessingWorker
+        from PyQt6.QtCore import QThreadPool
 
-            # Update in-place
+        self._btn_reproject.setEnabled(False)
+        self._processing_label.setVisible(True)
+
+        def _do():
+            return reproject(self.pc, source, target)
+
+        def _on_result(result):
             self.pc.xyz = result.xyz
             self.pc.crs_epsg = result.crs_epsg
             self.pc.crs_wkt = result.crs_wkt
             self.pc.name = result.name
-
             QMessageBox.information(
                 self, tr("crs.completed"),
                 tr("crs.reprojected").format(source, target)
             )
             self.accept()
 
-        except Exception as e:
-            QMessageBox.critical(self, tr("crs.error"), str(e))
+        def _on_error(e):
+            QMessageBox.critical(self, tr("crs.error"), e)
+            self._btn_reproject.setEnabled(True)
+            self._processing_label.setVisible(False)
+
+        def _on_finished():
+            self._btn_reproject.setEnabled(True)
+            self._processing_label.setVisible(False)
+
+        worker = ProcessingWorker(_do)
+        worker.signals.result.connect(_on_result)
+        worker.signals.error.connect(_on_error)
+        worker.signals.finished.connect(_on_finished)
+        QThreadPool.globalInstance().start(worker)
