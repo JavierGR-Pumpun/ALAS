@@ -3,6 +3,7 @@ ALAS — Preprocessing
 Merge, noise filtering, reprojection and decimation of point clouds.
 """
 
+import json
 import numpy as np
 import tempfile
 import os

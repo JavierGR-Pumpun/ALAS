@@ -121,10 +121,11 @@ def calculate_roughness(dtm: RasterLayer, window: int = 3) -> RasterLayer:
         center = values[len(values) // 2]
         if np.isnan(center):
             return np.nan
-        valid = values[~np.isnan(values)]
-        if len(valid) < 2:
+        neighbors = np.delete(values, len(values) // 2)
+        valid = neighbors[~np.isnan(neighbors)]
+        if len(valid) < 1:
             return 0.0
-        return np.sqrt(np.mean((valid - center) ** 2))
+        return np.sqrt(np.sum((valid - center) ** 2))
 
     roughness = generic_filter(arr, tri_func, size=window)
     roughness = roughness.astype(np.float32)
@@ -147,8 +148,8 @@ def calculate_hillshade(dtm: RasterLayer,
     azimuth: sun direction (degrees, 0=North, 315=default)
     altitude: sun height above horizon (degrees)
     """
-    azimuth = azimuth or DEFAULT_HILLSHADE_AZIMUTH
-    altitude = altitude or DEFAULT_HILLSHADE_ALTITUDE
+    azimuth = DEFAULT_HILLSHADE_AZIMUTH if azimuth is None else azimuth
+    altitude = DEFAULT_HILLSHADE_ALTITUDE if altitude is None else altitude
 
     logger.info(f"Calculating hillshade (azimuth={azimuth}°, altitude={altitude}°)")
 
@@ -207,12 +208,12 @@ def morphometric_classification(dtm: RasterLayer) -> RasterLayer:
 
     morph = np.full_like(profile, 3, dtype=np.float32)  # Default: plain
 
-    # Ridges: positive profile curvature and negative planform
-    ridges = (profile > 0.01) & (planform < -0.01)
+    # Ridges: convex (negative profile curvature) and divergent (negative planform)
+    ridges = (profile < -0.01) & (planform < -0.01)
     morph[ridges] = 1
 
-    # Valleys: negative profile curvature and positive planform
-    valleys = (profile < -0.01) & (planform > 0.01)
+    # Valleys: concave (positive profile curvature) and convergent (positive planform)
+    valleys = (profile > 0.01) & (planform > 0.01)
     morph[valleys] = 2
 
     morph[np.isnan(arr)] = DEFAULT_NODATA

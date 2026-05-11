@@ -25,9 +25,9 @@ def generate_dtm(pc: PointCloudData, resolution: float = None,
     """
     Generates a DTM (Digital Terrain Model) using only ground points.
     """
-    resolution = resolution or DEFAULT_DEM_RESOLUTION
-    method = method or DEFAULT_INTERPOLATION_METHOD
-    power = power or DEFAULT_IDW_POWER
+    resolution = DEFAULT_DEM_RESOLUTION if resolution is None else resolution
+    method = DEFAULT_INTERPOLATION_METHOD if method is None else method
+    power = DEFAULT_IDW_POWER if power is None else power
 
     logger.info(f"Generating DTM: res={resolution}m, method={method}")
 
@@ -47,8 +47,8 @@ def generate_dsm(pc: PointCloudData, resolution: float = None,
     """
     Generates a DSM (Digital Surface Model) using first returns.
     """
-    resolution = resolution or DEFAULT_DEM_RESOLUTION
-    method = method or DEFAULT_INTERPOLATION_METHOD
+    resolution = DEFAULT_DEM_RESOLUTION if resolution is None else resolution
+    method = DEFAULT_INTERPOLATION_METHOD if method is None else method
 
     logger.info(f"Generating DSM: res={resolution}m, method={method}")
 
@@ -132,8 +132,8 @@ def _points_to_raster(points: np.ndarray, resolution: float,
 
     logger.info(f"Grid: {cols}x{rows} cells ({resolution}m/px)")
 
-    xi = np.linspace(xmin + resolution / 2, xmax - resolution / 2, cols)
-    yi = np.linspace(ymax - resolution / 2, ymin + resolution / 2, rows)
+    xi = xmin + resolution / 2 + np.arange(cols) * resolution
+    yi = ymax - resolution / 2 - np.arange(rows) * resolution
     xx, yy = np.meshgrid(xi, yi)
 
     if method == "idw":
