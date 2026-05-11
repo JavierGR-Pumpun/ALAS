@@ -15,11 +15,14 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QFrame, QApplication, QMessageBox, QFileDialog, QInputDialog
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThreadPool
+
 from PyQt6.QtGui import QColor
 
 from app.logger import get_logger
 from app.i18n import tr
+from app.processing.workers import ProcessingWorker
+from app.ui.widgets import LoadingOverlay
 
 logger = get_logger("ui.reports_dialog")
 
@@ -52,8 +55,10 @@ class ReportsDialog(QDialog):
         self.setMinimumSize(780, 500)
         self.resize(920, 560)
         self._reports: List = []
+        self._busy = False
         self._setup_ui()
         self._apply_style()
+        self._loading_overlay = LoadingOverlay(self)
         self._load_reports()
 
     # ------------------------------------------------------------------
@@ -271,15 +276,56 @@ class ReportsDialog(QDialog):
         """)
 
     # ------------------------------------------------------------------
+    # Threading helpers
+    # ------------------------------------------------------------------
+
+    def _set_busy(self, busy: bool):
+        self._busy = busy
+        self._btn_upload.setEnabled(not busy)
+        self._btn_refresh.setEnabled(not busy)
+        if busy:
+            self._btn_view.setEnabled(False)
+            self._btn_share.setEnabled(False)
+            self._btn_delete.setEnabled(False)
+            self._loading_overlay.show_loading()
+        else:
+            self._loading_overlay.hide_loading()
+            self._on_selection()
+
+    def _run_in_thread(self, func, on_result=None, on_error=None):
+        worker = ProcessingWorker(func)
+        if on_result:
+            worker.signals.result.connect(on_result)
+        if on_error:
+            worker.signals.error.connect(on_error)
+        QThreadPool.globalInstance().start(worker)
+
+    # ------------------------------------------------------------------
     # Data
     # ------------------------------------------------------------------
 
     def _load_reports(self):
-        if not self._user:
+        if not self._user or self._busy:
             return
-        from app.auth.reports_service import get_user_reports
-        self._reports = get_user_reports(self._user.id)
-        self._rebuild_table()
+        self._set_busy(True)
+        self._count_label.setText(tr("reports.loading") if tr("reports.loading") != "reports.loading" else "…")
+
+        user_id = self._user.id
+
+        def fetch():
+            from app.auth.reports_service import get_user_reports
+            return get_user_reports(user_id)
+
+        def on_result(reports):
+            self._reports = reports
+            self._rebuild_table()
+            self._set_busy(False)
+
+        def on_error(msg):
+            logger.error(f"Load reports failed: {msg}")
+            self._set_busy(False)
+
+        self._run_in_thread(fetch, on_result=on_result, on_error=on_error)
 
     def _rebuild_table(self):
         self._table.setRowCount(0)
@@ -332,7 +378,7 @@ class ReportsDialog(QDialog):
 
     def _on_selection(self):
         report = self._selected_report()
-        has = report is not None
+        has = report is not None and not self._busy
         self._btn_view.setEnabled(has)
         self._btn_delete.setEnabled(has)
         self._btn_share.setEnabled(has)
@@ -360,19 +406,33 @@ class ReportsDialog(QDialog):
         if not ok or not title.strip():
             return
 
-        # Copy PDF to local reports folder
         dest = self._ensure_reports_dir() / Path(path).name
         import shutil
         shutil.copy2(path, dest)
 
-        from app.auth.reports_service import save_report
-        result = save_report(self._user.id, title.strip(), str(dest))
-        if isinstance(result, str):
-            QMessageBox.critical(self, tr("reports.title"), tr("reports.error_save"))
-            return
+        self._set_busy(True)
+        user_id = self._user.id
+        final_title = title.strip()
+        dest_str = str(dest)
 
-        self._load_reports()
-        QMessageBox.information(self, tr("reports.saved"), tr("reports.saved_msg"))
+        def save():
+            from app.auth.reports_service import save_report
+            return save_report(user_id, final_title, dest_str)
+
+        def on_result(result):
+            self._set_busy(False)
+            if isinstance(result, str):
+                QMessageBox.critical(self, tr("reports.title"), tr("reports.error_save"))
+                return
+            self._load_reports()
+            QMessageBox.information(self, tr("reports.saved"), tr("reports.saved_msg"))
+
+        def on_error(msg):
+            logger.error(f"Upload save failed: {msg}")
+            self._set_busy(False)
+            QMessageBox.critical(self, tr("reports.title"), tr("reports.error_save"))
+
+        self._run_in_thread(save, on_result=on_result, on_error=on_error)
 
     def _view_report(self):
         report = self._selected_report()
@@ -388,15 +448,29 @@ class ReportsDialog(QDialog):
         report = self._selected_report()
         if not report or not self._user:
             return
-        from app.auth.reports_service import toggle_share
-        new_token = toggle_share(report.id, self._user.id)
-        if new_token is not None:
-            msg = tr("reports.shared_msg").format(new_token)
-            QApplication.clipboard().setText(new_token)
-            QMessageBox.information(self, tr("reports.title"), msg)
-        else:
-            QMessageBox.information(self, tr("reports.title"), tr("reports.unshared_msg"))
-        self._load_reports()
+        self._set_busy(True)
+        report_id = report.id
+        user_id = self._user.id
+
+        def toggle():
+            from app.auth.reports_service import toggle_share
+            return toggle_share(report_id, user_id)
+
+        def on_result(new_token):
+            self._set_busy(False)
+            if new_token is not None:
+                msg = tr("reports.shared_msg").format(new_token)
+                QApplication.clipboard().setText(new_token)
+                QMessageBox.information(self, tr("reports.title"), msg)
+            else:
+                QMessageBox.information(self, tr("reports.title"), tr("reports.unshared_msg"))
+            self._load_reports()
+
+        def on_error(msg):
+            logger.error(f"Toggle share failed: {msg}")
+            self._set_busy(False)
+
+        self._run_in_thread(toggle, on_result=on_result, on_error=on_error)
 
     def _delete_report(self):
         report = self._selected_report()
@@ -410,12 +484,27 @@ class ReportsDialog(QDialog):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        from app.auth.reports_service import delete_report
-        ok = delete_report(report.id, self._user.id)
-        if ok:
-            self._load_reports()
-        else:
-            QMessageBox.critical(self, tr("reports.title"), tr("reports.error_save"))
+
+        self._set_busy(True)
+        report_id = report.id
+        user_id = self._user.id
+
+        def delete():
+            from app.auth.reports_service import delete_report
+            return delete_report(report_id, user_id)
+
+        def on_result(ok):
+            self._set_busy(False)
+            if ok:
+                self._load_reports()
+            else:
+                QMessageBox.critical(self, tr("reports.title"), tr("reports.error_save"))
+
+        def on_error(msg):
+            logger.error(f"Delete report failed: {msg}")
+            self._set_busy(False)
+
+        self._run_in_thread(delete, on_result=on_result, on_error=on_error)
 
     # ------------------------------------------------------------------
     # Helpers

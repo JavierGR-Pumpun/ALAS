@@ -180,8 +180,6 @@ def show_history_dialog(
         safe_ts = item["timestamp"].replace(":", "-")
         pdf_path = reports_dir / f"{tab_type}_{safe_ts}.pdf"
 
-        from app.processing.exporters import export_pdf_report
-
         metadata = {
             tr(source_label_key): item["layer"],
             tr("hydro.timestamp"): item["timestamp"],
@@ -190,21 +188,33 @@ def show_history_dialog(
         stats = _collect_statistics(res)
         analysis_results, _tmp = results_window_class.render_for_pdf(res)
 
-        try:
-            export_pdf_report(title.strip(), metadata, stats, [], str(pdf_path),
+        btn_save.setEnabled(False)
+        user_id = user.id
+        final_title = title.strip()
+        pdf_path_str = str(pdf_path)
+
+        def do_save():
+            from app.processing.exporters import export_pdf_report
+            from app.auth.reports_service import save_report
+            export_pdf_report(final_title, metadata, stats, [], pdf_path_str,
                               analysis_results=analysis_results)
-        except Exception as e:
-            QMessageBox.critical(dlg, tr("reports.title"), str(e))
-            return
+            return save_report(user_id, final_title, pdf_path_str)
 
-        from app.auth.reports_service import save_report
+        def on_result(result):
+            btn_save.setEnabled(True)
+            if isinstance(result, str):
+                QMessageBox.critical(dlg, tr("reports.title"), tr("reports.error_save"))
+                return
+            QMessageBox.information(dlg, tr("reports.saved"), tr("reports.saved_msg"))
 
-        result = save_report(user.id, title.strip(), str(pdf_path))
-        if isinstance(result, str):
-            QMessageBox.critical(dlg, tr("reports.title"), tr("reports.error_save"))
-            return
+        def on_error(msg):
+            btn_save.setEnabled(True)
+            QMessageBox.critical(dlg, tr("reports.title"), msg)
 
-        QMessageBox.information(dlg, tr("reports.saved"), tr("reports.saved_msg"))
+        worker = ProcessingWorker(do_save)
+        worker.signals.result.connect(on_result)
+        worker.signals.error.connect(on_error)
+        QThreadPool.globalInstance().start(worker)
 
     btn_save.clicked.connect(on_save)
     btn_row.addWidget(btn_save)

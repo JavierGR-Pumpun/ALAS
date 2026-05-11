@@ -13,6 +13,7 @@ from app.core.point_cloud import PointCloudData
 from app.processing.preprocessing import reproject
 from app.i18n import tr
 from app.logger import get_logger
+from app.ui.widgets import LoadingOverlay
 
 logger = get_logger("ui.crs_dialog")
 
@@ -26,6 +27,7 @@ class CRSDialog(QDialog):
         self.setWindowTitle(tr("action.reproject"))
         self.setMinimumSize(400, 300)
         self._setup_ui()
+        self._loading_overlay = LoadingOverlay(self)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -70,12 +72,6 @@ class CRSDialog(QDialog):
 
         layout.addStretch()
 
-        self._processing_label = QLabel(tr("status.processing"))
-        self._processing_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._processing_label.setObjectName("muted")
-        self._processing_label.setVisible(False)
-        layout.addWidget(self._processing_label)
-
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -103,7 +99,7 @@ class CRSDialog(QDialog):
         from PyQt6.QtCore import QThreadPool
 
         self._btn_reproject.setEnabled(False)
-        self._processing_label.setVisible(True)
+        self._loading_overlay.show_loading()
 
         def _do():
             return reproject(self.pc, source, target)
@@ -120,13 +116,13 @@ class CRSDialog(QDialog):
             self.accept()
 
         def _on_error(e):
+            self._loading_overlay.hide_loading()
             QMessageBox.critical(self, tr("crs.error"), e)
             self._btn_reproject.setEnabled(True)
-            self._processing_label.setVisible(False)
 
         def _on_finished():
+            self._loading_overlay.hide_loading()
             self._btn_reproject.setEnabled(True)
-            self._processing_label.setVisible(False)
 
         worker = ProcessingWorker(_do)
         worker.signals.result.connect(_on_result)

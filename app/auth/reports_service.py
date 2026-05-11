@@ -42,7 +42,9 @@ class AnalysisReport:
     @property
     def date_str(self) -> str:
         if self.created_at:
-            return self.created_at.strftime("%d/%m/%Y %H:%M")
+            import datetime
+            local_dt = self.created_at.astimezone(datetime.timezone.utc).astimezone()
+            return local_dt.strftime("%d/%m/%Y %H:%M")
         return "—"
 
 
@@ -62,8 +64,8 @@ def save_report(user_id: int, title: str, disk_path: str) -> AnalysisReport | st
                 cur.execute(
                     """
                     INSERT INTO analysis_reports
-                        (user_id, title, filename, disk_path, size_bytes)
-                    VALUES (%s, %s, %s, %s, %s)
+                        (user_id, title, filename, disk_path, size_bytes, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
                     RETURNING id, user_id, title, filename, disk_path, size_bytes,
                               share_token, created_at, updated_at
                     """,
@@ -82,22 +84,23 @@ def get_user_reports(user_id: int) -> List[AnalysisReport]:
     """Return all reports for a user, newest first."""
     try:
         conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, user_id, title, filename, disk_path, size_bytes,
-                       share_token, created_at, updated_at
-                FROM analysis_reports
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                """,
-                (user_id,),
-            )
-            rows = cur.fetchall()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, user_id, title, filename, disk_path, size_bytes,
+                           share_token, created_at, updated_at
+                    FROM analysis_reports
+                    WHERE user_id = %s
+                    ORDER BY COALESCE(created_at, updated_at, '1970-01-01'::timestamptz) DESC
+                    """,
+                    (user_id,),
+                )
+                rows = cur.fetchall()
         conn.close()
         return [AnalysisReport(*row) for row in rows]
     except Exception as e:
-        logger.error(f"get_user_reports error: {e}")
+        logger.error(f"get_user_reports error (user_id={user_id}): {e}")
         return []
 
 
@@ -126,22 +129,18 @@ def toggle_share(report_id: int, user_id: int) -> Optional[str]:
     """
     try:
         conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT share_token FROM analysis_reports WHERE id = %s AND user_id = %s",
-                (report_id, user_id),
-            )
-            row = cur.fetchone()
-
-        if row is None:
-            conn.close()
-            return None
-
-        current_token = row[0]
-        new_token = None if current_token is not None else uuid.uuid4().hex
-
         with conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT share_token FROM analysis_reports WHERE id = %s AND user_id = %s",
+                    (report_id, user_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    conn.close()
+                    return None
+                current_token = row[0]
+                new_token = None if current_token is not None else uuid.uuid4().hex
                 cur.execute(
                     """UPDATE analysis_reports
                        SET share_token = %s, updated_at = NOW()

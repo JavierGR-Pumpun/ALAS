@@ -11,6 +11,7 @@ from PyQt6.QtGui import QFont
 
 from app.i18n import tr
 from app.logger import get_logger
+from app.ui.widgets import LoadingOverlay
 
 logger = get_logger("ui.login_dialog")
 
@@ -32,6 +33,7 @@ class LoginDialog(QDialog):
         )
 
         self._build_ui()
+        self._loading_overlay = LoadingOverlay(self)
 
     # ------------------------------------------------------------------
 
@@ -116,11 +118,13 @@ class LoginDialog(QDialog):
 
         remember_me = self._remember_me.isChecked()
         self._set_login_enabled(False)
+        self._loading_overlay.show_loading()
 
         def _do():
             return auth_login(email, password, remember_me=remember_me)
 
         def _on_result(result):
+            self._loading_overlay.hide_loading()
             if isinstance(result, str):
                 self._show_error(self._login_error, tr(result))
                 self._set_login_enabled(True)
@@ -130,6 +134,7 @@ class LoginDialog(QDialog):
             self.accept()
 
         def _on_error(e):
+            self._loading_overlay.hide_loading()
             self._show_error(self._login_error, str(e))
             self._set_login_enabled(True)
 
