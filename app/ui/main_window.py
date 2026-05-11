@@ -691,7 +691,7 @@ class MainWindow(QMainWindow):
 
     def _show_analysis_dialog(self, tab_name: str):
         if not hasattr(self, "_analysis_dialog") or self._analysis_dialog is None:
-            from app.ui.dialogs.analysis_dialog import AnalysisDialog
+            from app.ui.dialogs.analysis.analysis_dialog import AnalysisDialog
             self._analysis_dialog = AnalysisDialog(tab_name, self.layer_manager, self)
             self._analysis_dialog.setWindowFlags(Qt.WindowType.Window)
         else:

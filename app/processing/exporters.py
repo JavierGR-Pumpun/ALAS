@@ -137,11 +137,15 @@ def export_vector(geometries: list, attributes: list,
 
 def export_pdf_report(title: str, metadata: dict,
                        statistics: dict, screenshots: list,
-                       path: str, hydro_results: dict = None):
+                       path: str, analysis_results: dict = None,
+                       hydro_results: dict = None):
     """
     Generates a PDF report with statistics and screenshots.
-    hydro_results: dict with layer_type -> {'image': path, 'legend': text, 'stats': dict}
+    analysis_results: dict with layer_type -> {'image': path, 'legend': text, 'stats': dict}
+    hydro_results: legacy alias for analysis_results.
     """
+    if analysis_results is None and hydro_results is not None:
+        analysis_results = hydro_results
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.platypus import (
@@ -216,8 +220,8 @@ def export_pdf_report(title: str, metadata: dict,
         elements.append(stats_table)
         elements.append(Spacer(1, 20))
 
-    # Hydrology results with images and legends
-    if hydro_results:
+    # Analysis results with images and legends
+    if analysis_results:
         from reportlab.graphics.shapes import Drawing, Rect
         from reportlab.platypus import KeepTogether
         
@@ -288,7 +292,7 @@ def export_pdf_report(title: str, metadata: dict,
             
             return legend_elements
         
-        for layer_type, result_data in hydro_results.items():
+        for layer_type, result_data in analysis_results.items():
             elements.append(PageBreak())
             
             # Layer title
