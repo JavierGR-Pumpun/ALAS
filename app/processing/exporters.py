@@ -269,6 +269,63 @@ def export_pdf_report(title: str, metadata: dict,
                     ("#2196f3", "Moderate (0.5-2 m)"),
                     ("#1565c0", "Deep (2-5 m)"),
                     ("#000033", "Very deep (> 5 m)")
+                ],
+                "slope": [
+                    ("#ffffcc", "Flat (0–5°)"),
+                    ("#fd8d3c", "Moderate (5–20°)"),
+                    ("#e31a1c", "Steep (20–45°)"),
+                    ("#800026", "Very steep (>45°)")
+                ],
+                "aspect": [
+                    ("#1f77b4", "North (0°/360°)"),
+                    ("#ff7f0e", "East (90°)"),
+                    ("#2ca02c", "South (180°)"),
+                    ("#d62728", "West (270°)")
+                ],
+                "curvature": [
+                    ("#d62728", "Concave (<0)"),
+                    ("#f5f5f5", "Flat (≈0)"),
+                    ("#1f77b4", "Convex (>0)")
+                ],
+                "hillshade": [
+                    ("#000000", "Shadow (0)"),
+                    ("#ffffff", "Lit (255)")
+                ],
+                "landform": [
+                    ("#1f77b4", "Valley"),
+                    ("#aec7e8", "Footslope"),
+                    ("#ffbb78", "Backslope"),
+                    ("#d62728", "Summit")
+                ],
+                "roughness": [
+                    ("#f7fcf5", "Low"),
+                    ("#41ab5d", "Medium"),
+                    ("#00441b", "High")
+                ],
+                "tree_tops": [
+                    ("#ff0000", "High canopy"),
+                    ("#ffff00", "Medium canopy"),
+                    ("#00cc00", "Low canopy")
+                ],
+                "density": [
+                    ("#f7fcf5", "Low"),
+                    ("#74c476", "Medium"),
+                    ("#00441b", "High")
+                ],
+                "volume_difference": [
+                    ("#d62728", "Erosion (<0 m)"),
+                    ("#f5f5f5", "Stable (≈0 m)"),
+                    ("#1f77b4", "Deposition (>0 m)")
+                ],
+                "significant_changes": [
+                    ("#d62728", "Significant erosion"),
+                    ("#cccccc", "Stable"),
+                    ("#1f77b4", "Significant deposition")
+                ],
+                "vegetation_change": [
+                    ("#d62728", "Deforested"),
+                    ("#2ca02c", "Forest gain"),
+                    ("#cccccc", "No change")
                 ]
             }
             
