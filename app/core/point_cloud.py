@@ -44,6 +44,8 @@ class PointCloudData:
         # Name for layer panel
         self.name: str = "Unnamed"
 
+        self._hag_cache: Optional[Dict[str, float]] = None
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -432,6 +434,9 @@ class PointCloudData:
 
     def hag_stats(self) -> Dict[str, float]:
         """Height Above Ground statistics using nearest ground point (class 2) interpolation."""
+        if self._hag_cache is not None:
+            return self._hag_cache
+
         if self.xyz is None or self.classification is None:
             return {}
 
@@ -455,7 +460,7 @@ class PointCloudData:
         if len(non_ground_hag) == 0:
             return {}
 
-        return {
+        self._hag_cache = {
             "min": float(non_ground_hag.min()),
             "max": float(non_ground_hag.max()),
             "mean": float(non_ground_hag.mean()),
@@ -464,6 +469,7 @@ class PointCloudData:
             "ground_points": int(ground_mask.sum()),
             "non_ground_points": int((~ground_mask).sum()),
         }
+        return self._hag_cache
 
     # ------------------------------------------------------------------
     # Merge

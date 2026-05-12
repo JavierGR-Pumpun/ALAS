@@ -663,6 +663,7 @@ class MainWindow(QMainWindow):
             result = dlg.get_result()
             if result is not None:
                 entry.layer.classification = result
+                entry.layer._hag_cache = None
                 self.viewport.update_colorization(entry.layer, "classification")
                 self._update_status(tr("success.classification_done"))
                 

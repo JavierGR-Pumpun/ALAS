@@ -279,6 +279,7 @@ class ClassificationDialog(QDialog):
             post_process = False
             if algo != "ai" and self._classify_above.isChecked() and result is not None:
                 self.pc.classification = result
+                self.pc._hag_cache = None
                 result = classify_above_ground(self.pc)
                 post_process = True
 
