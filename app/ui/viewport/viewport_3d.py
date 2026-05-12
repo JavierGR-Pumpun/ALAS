@@ -127,21 +127,10 @@ class Viewport3D(QWidget):
     # Point Cloud Display
     # ------------------------------------------------------------------
 
-    def display_point_cloud(self, pc: PointCloudData,
-                             colorize_by: str = None,
-                             name: str = None):
-        """
-        Display a point cloud in the viewport.
-        If an actor with the same name exists, it replaces it.
-        """
-        if pc.xyz is None or pc.point_count == 0:
-            logger.warning("Empty cloud, nothing to display")
-            return
-
-        name = name or pc.name
-        colorize_by = colorize_by or self._colorize_mode
-
-        # Automatic decimation for performance
+    @staticmethod
+    def prepare_display_data(pc: PointCloudData,
+                              colorize_by: str) -> pv.PolyData:
+        """Decimate and build a colored PolyData mesh — safe to run off the main thread."""
         display_pc = pc
         if pc.point_count > MAX_VIEWPORT_POINTS:
             display_pc = pc.decimate_for_display(MAX_VIEWPORT_POINTS)
@@ -150,34 +139,42 @@ class Viewport3D(QWidget):
                 f"{display_pc.point_count:,} points for visualization"
             )
 
-        # Create PyVista point cloud mesh
         points = display_pc.xyz.astype(np.float32)
         cloud = pv.PolyData(points)
 
-        # Generate colors
-        colors = self._generate_colors(display_pc, colorize_by)
+        colors = Viewport3D._generate_colors_static(display_pc, colorize_by)
         if colors is not None:
             cloud["RGB"] = colors
 
-        # Remove previous actor if exists
-        self._remove_actor(name)
+        return cloud
 
-        # Add to plotter
+    def render_prepared_cloud(self, cloud: pv.PolyData, name: str):
+        """Upload a prepared PolyData mesh to the plotter — must run on the main thread."""
+        has_colors = "RGB" in cloud.point_data
+        self._remove_actor(name)
         actor = self.plotter.add_mesh(
             cloud,
-            scalars="RGB" if colors is not None else None,
-            rgb=True if colors is not None else False,
+            scalars="RGB" if has_colors else None,
+            rgb=has_colors,
             point_size=self._point_size,
             render_points_as_spheres=False,
             name=name,
             show_scalar_bar=False,
         )
         self._current_actors[name] = actor
+        logger.info(f"Rendered {cloud.n_points:,} points | name={name}")
 
-        logger.info(
-            f"Displayed {display_pc.point_count:,} points | "
-            f"Color: {colorize_by}"
-        )
+    def display_point_cloud(self, pc: PointCloudData,
+                             colorize_by: str = None,
+                             name: str = None):
+        """Display a point cloud synchronously (used by update_colorization)."""
+        if pc.xyz is None or pc.point_count == 0:
+            logger.warning("Empty cloud, nothing to display")
+            return
+        name = name or pc.name
+        colorize_by = colorize_by or self._colorize_mode
+        cloud = Viewport3D.prepare_display_data(pc, colorize_by)
+        self.render_prepared_cloud(cloud, name)
 
     def update_colorization(self, pc: PointCloudData,
                               colorize_by: str, name: str = None):
@@ -185,9 +182,9 @@ class Viewport3D(QWidget):
         self._colorize_mode = colorize_by
         self.display_point_cloud(pc, colorize_by, name)
 
-    def _generate_colors(self, pc: PointCloudData,
-                          mode: str) -> Optional[np.ndarray]:
-        """Generate RGB uint8 array according to colorization mode."""
+    @staticmethod
+    def _generate_colors_static(pc: PointCloudData,
+                                 mode: str) -> Optional[np.ndarray]:
         try:
             if mode == COLORIZE_HEIGHT:
                 return colorize_by_height(pc.xyz[:, 2])
@@ -202,7 +199,6 @@ class Viewport3D(QWidget):
             elif mode == COLORIZE_SINGLE:
                 return colorize_single(pc.point_count)
             else:
-                # Fallback: color by height
                 return colorize_by_height(pc.xyz[:, 2])
         except Exception as e:
             logger.error(f"Error in colorization ({mode}): {e}")

@@ -442,11 +442,19 @@ class MainWindow(QMainWindow):
     def _on_layer_added(self, index: int):
         self._update_points_display()
         entry = self.layer_manager.get_entry(index)
-        if entry:
-            if entry.is_point_cloud:
-                self.viewport.display_point_cloud(entry.layer, name=entry.name)
-            elif entry.is_raster:
-                self.viewport.display_raster_surface(entry.layer, name=entry.name)
+        if not entry:
+            return
+        if entry.is_point_cloud:
+            colorize_by = self.viewport._colorize_mode
+            name = entry.name
+            layer = entry.layer
+            self._run_processing(
+                Viewport3D.prepare_display_data,
+                layer, colorize_by,
+                on_result=lambda cloud: self.viewport.render_prepared_cloud(cloud, name),
+            )
+        elif entry.is_raster:
+            self.viewport.display_raster_surface(entry.layer, name=entry.name)
 
     # ==================================================================
     # File operations
