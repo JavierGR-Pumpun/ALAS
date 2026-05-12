@@ -260,6 +260,13 @@ class MainWindow(QMainWindow):
         act_overlap.triggered.connect(self._remove_overlap)
         menu_proc.addAction(act_overlap)
 
+        menu_proc.addSeparator()
+
+        act_batch = QAction(tr("action.batch"), self)
+        act_batch.setShortcut(QKeySequence("Ctrl+B"))
+        act_batch.triggered.connect(self._show_batch_dialog)
+        menu_proc.addAction(act_batch)
+
         # --- Analysis ---
         menu_analysis = menubar.addMenu(tr("menu.analysis"))
 
@@ -651,6 +658,11 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # Processing actions (stubs — implemented in dialogs)
     # ==================================================================
+
+    def _show_batch_dialog(self):
+        from app.ui.dialogs.batch_dialog import BatchProcessingDialog
+        dlg = BatchProcessingDialog(self)
+        dlg.exec()
 
     def _show_classification_dialog(self):
         from app.ui.dialogs.classification_dialog import ClassificationDialog
