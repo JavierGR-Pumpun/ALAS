@@ -353,8 +353,6 @@ class BatchProcessingDialog(QDialog):
         # Per-run state
         self._total_files: int = 0
         self._done_count:  int = 0
-        self._step_block: int | None = None   # block index of in-place step line
-        self._head_block: int | None = None   # block index of "▸ [n/N] name" line
         self._spin_idx:   int = 0
         self._file_t0:    float = 0.0
         self._batch_t0:   float = 0.0
@@ -375,17 +373,6 @@ class BatchProcessingDialog(QDialog):
         self._term.setTextCursor(cur)
         self._term.ensureCursorVisible()
         return self._term.document().blockCount() - 2
-
-    def _replace_block(self, block_no: int, text: str, color: str):
-        block = self._term.document().findBlockByNumber(block_no)
-        if not block.isValid():
-            return
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        c = QTextCursor(block)
-        c.select(QTextCursor.SelectionType.BlockUnderCursor)
-        # BlockUnderCursor includes the preceding newline; reinsert it
-        c.insertText(("\n" if block_no > 0 else "") + text, fmt)
 
     def _ascii_bar(self, pct: int, width: int | None = None) -> str:
         width = width or self.BAR_WIDTH
@@ -531,8 +518,6 @@ class BatchProcessingDialog(QDialog):
         import datetime, time
         self._total_files = len(files)
         self._done_count  = 0
-        self._step_block  = None
-        self._head_block  = None
         self._spin_idx    = 0
         self._batch_t0    = time.time()
 
@@ -553,42 +538,24 @@ class BatchProcessingDialog(QDialog):
         import time
         self._file_t0 = time.time()
         n = idx + 1
-        # Header line for this file (in cyan), tracked so we can finalise later
-        head = f"  ▸ [{n}/{self._total_files}]  {name}"
-        self._head_block = self._emit(head, self.C_CYAN)
-        # Reserve an empty step line right below; it gets updated in place
-        self._step_block = self._emit("", self.C_BLUE)
+        self._emit(f"  ▸ [{n}/{self._total_files}]  {name}", self.C_CYAN)
 
     def _on_file_progress(self, _idx: int, pct: int, msg: str):
         msg_clean = msg.rstrip("…").rstrip(".").lower()
         spin      = self._spinner_char()
         bar       = self._ascii_bar(pct)
         line      = f"      {spin}  {msg_clean:<22.22s} [{bar}] {pct:3d}%"
-        if self._step_block is not None:
-            self._replace_block(self._step_block, line, self.C_BLUE)
-            self._term.ensureCursorVisible()
-        else:
-            self._step_block = self._emit(line, self.C_BLUE)
+        self._emit(line, self.C_FG)
 
     def _on_file_done(self, _idx: int, success: bool, message: str):
         import time
         elapsed = time.time() - self._file_t0
-
-        # Finalise the step line in place
-        if self._step_block is not None:
-            if success:
-                bar  = self._ascii_bar(100)
-                line = f"      ✓  {'done':<22.22s} [{bar}] 100%"
-                self._replace_block(self._step_block, line, self.C_GREEN)
-            else:
-                line = f"      ✗  {message[:60]}"
-                self._replace_block(self._step_block, line, self.C_RED)
-            self._step_block = None
-
-        # Append a tidy summary line below
         if success:
+            bar  = self._ascii_bar(100)
+            self._emit(f"      ✓  {'done':<22.22s} [{bar}] 100%", self.C_GREEN)
             self._emit(f"        └─ ok in {elapsed:.1f}s", self.C_DIMMER)
         else:
+            self._emit(f"      ✗  {message[:60]}", self.C_RED)
             self._emit(f"        └─ failed after {elapsed:.1f}s", self.C_DIMMER)
         self._emit("", self.C_DIM)
 
