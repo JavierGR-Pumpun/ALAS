@@ -326,6 +326,28 @@ def export_pdf_report(title: str, metadata: dict,
                     ("#d62728", "Deforested"),
                     ("#2ca02c", "Forest gain"),
                     ("#cccccc", "No change")
+                ],
+                "crown_raster": [
+                    ("#1f77b4", "Crown ID 1, 21, 41…"),
+                    ("#aec7e8", "Crown ID 2, 22, 42…"),
+                    ("#ff7f0e", "Crown ID 3, 23, 43…"),
+                    ("#ffbb78", "Crown ID 4, 24, 44…"),
+                    ("#2ca02c", "Crown ID 5, 25, 45…"),
+                    ("#98df8a", "Crown ID 6, 26, 46…"),
+                    ("#d62728", "Crown ID 7, 27, 47…"),
+                    ("#ff9896", "Crown ID 8, 28, 48…"),
+                    ("#9467bd", "Crown ID 9, 29, 49…"),
+                    ("#c5b0d5", "Crown ID 10, 30, 50…"),
+                    ("#8c564b", "Crown ID 11, 31, 51…"),
+                    ("#c49c94", "Crown ID 12, 32, 52…"),
+                    ("#e377c2", "Crown ID 13, 33, 53…"),
+                    ("#f7b6d2", "Crown ID 14, 34, 54…"),
+                    ("#7f7f7f", "Crown ID 15, 35, 55…"),
+                    ("#c7c7c7", "Crown ID 16, 36, 56…"),
+                    ("#bcbd22", "Crown ID 17, 37, 57…"),
+                    ("#dbdb8d", "Crown ID 18, 38, 58…"),
+                    ("#17becf", "Crown ID 19, 39, 59…"),
+                    ("#9edae5", "Crown ID 20, 40, 60… (then repeats)")
                 ]
             }
             

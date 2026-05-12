@@ -82,7 +82,27 @@ class VegetationResultsWindow(AnalysisResultsWindow):
             ),
             "crown_raster": (
                 f"<b>{tr('analysis.segment_crowns')}</b><br>"
-                f"• Each crown is shown in a unique random color<br>"
+                f"• Crown IDs cycle through the 20-color <b>tab20</b> palette:<br>"
+                f"• <span style='color:#1f77b4;{sq}'>■</span>"
+                f"<span style='color:#aec7e8;{sq}'>■</span>"
+                f"<span style='color:#ff7f0e;{sq}'>■</span>"
+                f"<span style='color:#ffbb78;{sq}'>■</span>"
+                f"<span style='color:#2ca02c;{sq}'>■</span>"
+                f"<span style='color:#98df8a;{sq}'>■</span>"
+                f"<span style='color:#d62728;{sq}'>■</span>"
+                f"<span style='color:#ff9896;{sq}'>■</span>"
+                f"<span style='color:#9467bd;{sq}'>■</span>"
+                f"<span style='color:#c5b0d5;{sq}'>■</span>"
+                f"<span style='color:#8c564b;{sq}'>■</span>"
+                f"<span style='color:#c49c94;{sq}'>■</span>"
+                f"<span style='color:#e377c2;{sq}'>■</span>"
+                f"<span style='color:#f7b6d2;{sq}'>■</span>"
+                f"<span style='color:#7f7f7f;{sq}'>■</span>"
+                f"<span style='color:#c7c7c7;{sq}'>■</span>"
+                f"<span style='color:#bcbd22;{sq}'>■</span>"
+                f"<span style='color:#dbdb8d;{sq}'>■</span>"
+                f"<span style='color:#17becf;{sq}'>■</span>"
+                f"<span style='color:#9edae5;{sq}'>■</span> (repeats for ID > 20)<br>"
                 f"• Background (no crown) → Transparent"
             ),
             "density": (
