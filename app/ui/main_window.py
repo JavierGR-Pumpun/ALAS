@@ -64,6 +64,9 @@ class MainWindow(QMainWindow):
         self._measurements_dialog = None
         self._classification_history_dialog = None
         self._reports_dialog = None
+        self._figures_dialog = None
+        self._figures_history_dialog = None
+        self._figure_actor_names: dict[int, str] = {}
 
         # Setup UI
         self._setup_window()
@@ -312,12 +315,20 @@ class MainWindow(QMainWindow):
         act_vol.triggered.connect(self._start_volume_tool)
         menu_tools.addAction(act_vol)
 
+        act_figures = QAction(tr("action.figures"), self)
+        act_figures.triggered.connect(self._show_figures_tool)
+        menu_tools.addAction(act_figures)
+
         menu_tools.addSeparator()
 
         act_history = QAction(tr("action.measurements"), self)
         act_history.setShortcut(QKeySequence("Ctrl+H"))
         act_history.triggered.connect(self._show_measurements_history)
         menu_tools.addAction(act_history)
+
+        act_fig_history = QAction(tr("action.figures_history"), self)
+        act_fig_history.triggered.connect(self._show_figures_history)
+        menu_tools.addAction(act_fig_history)
 
         # --- Help ---
         menu_help = menubar.addMenu(tr("menu.help"))
@@ -457,6 +468,8 @@ class MainWindow(QMainWindow):
         # Layer panel
         self.layer_panel.zoom_to_layer_requested.connect(self._zoom_to_layer)
         self.layer_panel.export_layer_requested.connect(self._export_layer)
+        self.layer_panel.figure_edit_requested.connect(self._on_figure_edit_from_layer)
+        self.layer_panel.figure_remove_requested.connect(self._on_figure_remove_from_layer)
 
         # Layer manager
         self.layer_manager.layer_added.connect(self._on_layer_added)
@@ -1177,6 +1190,149 @@ class MainWindow(QMainWindow):
         dlg = self._get_measurements_dialog()
         dlg.add_measurement(mtype, data)
         logger.info(f"Measurement '{mtype}' registered in history.")
+
+    # --- Geometric figures tool ---
+    def _show_figures_tool(self):
+        from app.ui.viewport.figures_tool import FiguresToolDialog
+        if self._figures_dialog is None:
+            self._figures_dialog = FiguresToolDialog(self)
+            self._figures_dialog.place_requested.connect(self._on_figure_place_requested)
+            self._figures_dialog.update_requested.connect(self._on_figure_update_requested)
+        self._figures_dialog.show()
+        self._figures_dialog.raise_()
+        self._figures_dialog.activateWindow()
+
+    def _get_figures_history_dialog(self):
+        if self._figures_history_dialog is None:
+            from app.ui.dialogs.figures_history_dialog import FiguresHistoryDialog
+            self._figures_history_dialog = FiguresHistoryDialog(self)
+            self._figures_history_dialog.remove_requested.connect(self._on_figure_remove_requested)
+            self._figures_history_dialog.clear_all_requested.connect(self._on_figures_clear_all)
+        return self._figures_history_dialog
+
+    def _show_figures_history(self):
+        self._get_figures_history_dialog().show_and_raise()
+
+    def _on_figure_place_requested(self, ftype: str, params: dict):
+        self._pending_figure = (ftype, dict(params))
+        self.viewport.enable_world_picking(self._on_figure_world_pick)
+        self._update_status(tr("fig.status_pick"))
+
+    def _on_figure_world_pick(self, x: float, y: float, z: float):
+        if not hasattr(self, "_pending_figure") or self._pending_figure is None:
+            return
+        ftype, params = self._pending_figure
+        self._pending_figure = None
+        self.viewport.disable_tools()
+
+        from app.ui.viewport.figures_tool import params_summary
+        dlg = self._get_figures_history_dialog()
+        entry = dlg.add_figure(ftype, (x, y, z), params)
+        self._figure_actor_names[entry.id] = entry.actor_name
+        self._figure_entries = getattr(self, "_figure_entries", {})
+        self._figure_entries[entry.id] = {"ftype": ftype, "center": (x, y, z), "params": dict(params)}
+        try:
+            self.viewport.add_figure(ftype, (x, y, z), params, entry.actor_name)
+        except Exception as e:
+            logger.error(f"Failed to place figure: {e}")
+            QMessageBox.warning(self, tr("fig.title"), str(e))
+            return
+        self.viewport.register_figure_id(entry.actor_name, entry.id)
+        self.layer_panel.add_figure_item(entry.id, ftype, params_summary(ftype, params))
+        # Arm dragging the first time a figure exists
+        self.viewport.enable_figure_dragging(self._on_figure_dragged)
+        self._update_status(tr("fig.status_placed").format(x, y, z))
+        logger.info(f"Figure #{entry.id} ({ftype}) placed at ({x:.3f}, {y:.3f}, {z:.3f})")
+
+    def _on_figure_update_requested(self, figure_id: int, ftype: str,
+                                     new_center: tuple, new_params: dict):
+        from app.ui.viewport.figures_tool import params_summary
+        self._figure_entries = getattr(self, "_figure_entries", {})
+        info = self._figure_entries.get(figure_id)
+        name = self._figure_actor_names.get(figure_id)
+        if info is None or name is None:
+            return
+        info["params"] = dict(new_params)
+        info["center"] = tuple(new_center)
+        try:
+            self.viewport.update_figure(ftype, new_center, new_params, name)
+            # Keep figure meta center in sync so drag works from the new position
+            if name in self.viewport._figure_meta:
+                ft, _, p = self.viewport._figure_meta[name]
+                self.viewport._figure_meta[name] = (ft, list(new_center), p)
+        except Exception as e:
+            logger.error(f"Failed to update figure: {e}")
+            return
+        self.layer_panel.update_figure_item(figure_id, ftype,
+                                            params_summary(ftype, new_params))
+        if self._figures_history_dialog is not None:
+            self._figures_history_dialog.update_entry(figure_id, new_params)
+            self._figures_history_dialog.update_entry_center(figure_id, new_center)
+        logger.info(f"Figure #{figure_id} updated: center={new_center} params={new_params}")
+
+    def _on_figure_edit_from_layer(self, figure_id: int):
+        self._figure_entries = getattr(self, "_figure_entries", {})
+        info = self._figure_entries.get(figure_id)
+        if info is None:
+            return
+        self._show_figures_tool()
+        self._figures_dialog.load_figure(
+            figure_id, info["ftype"], info["center"], info["params"]
+        )
+
+    def _on_figure_dragged(self, figure_id: int, x: float, y: float, z: float):
+        """Called by viewport after a drag is released; updates all tracked state."""
+        from app.ui.viewport.figures_tool import params_summary
+        self._figure_entries = getattr(self, "_figure_entries", {})
+        info = self._figure_entries.get(figure_id)
+        if info is None:
+            return
+        info["center"] = (x, y, z)
+        if self._figures_history_dialog is not None:
+            self._figures_history_dialog.update_entry_center(figure_id, (x, y, z))
+        self.layer_panel.update_figure_item(
+            figure_id, info["ftype"],
+            params_summary(info["ftype"], info["params"])
+        )
+        # Keep coordinate fields in the edit dialog current if it's open for this figure
+        if (self._figures_dialog is not None
+                and getattr(self._figures_dialog, "_edit_id", None) == figure_id):
+            self._figures_dialog.update_center_display((x, y, z))
+        logger.info(f"Figure #{figure_id} dragged to ({x:.3f}, {y:.3f}, {z:.3f})")
+
+    def _on_figure_remove_requested(self, figure_id: int):
+        """Remove a figure — called from the history dialog."""
+        self._remove_figure(figure_id)
+
+    def _on_figure_remove_from_layer(self, figure_id: int):
+        """Remove a figure — called from the layer panel context menu."""
+        self._remove_figure(figure_id)
+        if self._figures_history_dialog is not None:
+            self._figures_history_dialog.remove_entry(figure_id)
+
+    def _remove_figure(self, figure_id: int):
+        name = self._figure_actor_names.pop(figure_id, None)
+        self._figure_entries = getattr(self, "_figure_entries", {})
+        self._figure_entries.pop(figure_id, None)
+        if name:
+            self.viewport.unregister_figure(name)
+            self.viewport.remove_layer(name)
+        self.layer_panel.remove_figure_item(figure_id)
+        # Exit edit mode if this figure was being edited
+        if (self._figures_dialog is not None
+                and getattr(self._figures_dialog, "_edit_id", None) == figure_id):
+            self._figures_dialog._exit_edit_mode()
+        if not self._figure_actor_names:
+            self.viewport.disable_figure_dragging()
+
+    def _on_figures_clear_all(self):
+        for name in list(self._figure_actor_names.values()):
+            self.viewport.unregister_figure(name)
+            self.viewport.remove_layer(name)
+        self._figure_actor_names.clear()
+        self._figure_entries = {}
+        self.layer_panel.clear_figure_items()
+        self.viewport.disable_figure_dragging()
 
     # --- Classification history ---
     def _get_classification_history_dialog(self):
