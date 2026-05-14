@@ -50,6 +50,12 @@ ALAS is a desktop application for professional processing, analysis, and visuali
 - Volume calculation (cut/fill against reference Z)
 - Measurements history with copy and export
 
+### Batch Processing
+- Multi-file pipeline: apply preprocessing, classification, DEM generation, and export in one run
+- Configurable steps per job with per-step parameters
+- Real-time per-file progress tracking and pass/fail reporting
+- Output to a designated directory with automatic naming
+
 ### Processing Utilities
 - Noise filtering (SOR)
 - Voxel-based decimation
@@ -57,6 +63,12 @@ ALAS is a desktop application for professional processing, analysis, and visuali
 - CRS reprojection (via pyproj)
 - Project save / load (`.alas`)
 - Export: LAZ, LAS, GeoTIFF, OBJ 3D, PDF report
+
+### In-App Documentation
+- Interactive **Tutorial** covering all major workflows (ES / EN)
+- **Glossary** of LiDAR and geospatial terms (ES / EN)
+- **Keyboard shortcuts** reference (ES / EN)
+- Full-text search across all documentation pages
 
 ---
 
@@ -101,18 +113,25 @@ ALAS/
 ├── app/
 │   ├── auth/           — Authentication (login, register, session)
 │   ├── core/           — Data models (PointCloudData, RasterLayer, LayerManager)
-│   ├── processing/     — Algorithms (classification, DEM, analysis, measurements)
+│   ├── processing/     — Algorithms (classification, DEM, analysis, measurements, batch)
+│   ├── rendering/      — Specialized renderers (generic, hydrology)
 │   ├── ui/
-│   │   ├── dialogs/    — Modal dialogs
+│   │   ├── assets/     — Embedded UI assets
+│   │   ├── dialogs/    — Modal dialogs (including batch, tutorial, reports)
 │   │   ├── panels/     — Dock panels (Layers, Properties, Tools, Statistics, Log)
-│   │   └── viewport/   — 3D viewport + measurement tools
+│   │   ├── viewport/   — 3D viewport + measurement tools
+│   │   └── widgets/    — Reusable custom widgets
+│   ├── utils/          — Shared utilities
 │   ├── config.py       — Constants and defaults
 │   ├── i18n.py         — ES / EN translations
 │   └── logger.py       — Application logger
 ├── resources/
-│   ├── icons/
-│   ├── styles/
-│   └── models/         — AI model weights (.pt)
+│   ├── docs/
+│   │   ├── tutorials/  — TUTORIAL_EN.md, TUTORIAL_ES.md
+│   │   ├── glossary/   — GLOSSARY_EN.md, GLOSSARY_ES.md
+│   │   └── shortcuts/  — SHORTCUTS_EN.md, SHORTCUTS_ES.md
+│   ├── models/         — AI model weights (.pt)
+│   └── styles/
 ├── main.py
 └── environment.yml
 ```
