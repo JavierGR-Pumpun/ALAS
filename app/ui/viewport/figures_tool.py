@@ -25,7 +25,7 @@ FIGURE_TYPES = ["cube", "sphere", "cylinder", "cone", "plane"]
 
 _SCALE = 10        # 1 tick = 0.1 m
 _MIN_M = 0.1
-_MAX_M = 200.0
+_MAX_M = 2000.0
 
 
 def type_label(ftype: str) -> str:
@@ -65,7 +65,7 @@ class _SliderRow:
         self.slider.setTickInterval(_SCALE)
 
         self.edit = QLineEdit(f"{default_m:.1f}")
-        self.edit.setFixedWidth(64)
+        self.edit.setFixedWidth(90)
         self.edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.edit.setValidator(QDoubleValidator(_MIN_M, _MAX_M, 1))
         self.edit.setPlaceholderText("m")
