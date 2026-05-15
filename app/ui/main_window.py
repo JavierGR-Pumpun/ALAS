@@ -182,6 +182,11 @@ class MainWindow(QMainWindow):
         act_export.triggered.connect(self._show_export_dialog)
         menu_file.addAction(act_export)
 
+        act_flythrough = QAction(tr("action.flythrough"), self)
+        act_flythrough.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        act_flythrough.triggered.connect(self._show_flythrough_dialog)
+        menu_file.addAction(act_flythrough)
+
         menu_file.addSeparator()
 
         act_exit = QAction(tr("action.exit"), self)
@@ -1352,6 +1357,12 @@ class MainWindow(QMainWindow):
         dlg = self._get_classification_history_dialog()
         dlg.add_classification(algo, data)
         logger.info(f"Classification '{algo}' registered in history.")
+
+    # --- Flythrough ---
+    def _show_flythrough_dialog(self):
+        from app.ui.dialogs.flythrough_dialog import FlythroughDialog
+        dlg = FlythroughDialog(self.layer_manager, self.viewport, self)
+        dlg.exec()
 
     # --- Export ---
     def _show_export_dialog(self):
